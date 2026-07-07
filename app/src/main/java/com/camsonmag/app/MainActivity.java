@@ -1,99 +1,339 @@
 package com.camsonmag.app;
 
 import android.Manifest;
-import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.content.ContentResolver;
-import android.content.ContentValues;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.Typeface;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
-import android.net.Uri;
+import android.opengl.GLES11Ext;
+import android.opengl.GLES20;
+import android.opengl.GLSurfaceView;
+import android.opengl.Matrix;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Vibrator;
-import android.provider.MediaStore;
-import android.util.Base64;
+import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
-import android.webkit.JavascriptInterface;
-import android.webkit.PermissionRequest;
-import android.webkit.WebChromeClient;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
+import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
+import android.graphics.drawable.GradientDrawable;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.OutputStream;
+import com.google.ar.core.Anchor;
+import com.google.ar.core.ArCoreApk;
+import com.google.ar.core.Camera;
+import com.google.ar.core.Config;
+import com.google.ar.core.Frame;
+import com.google.ar.core.HitResult;
+import com.google.ar.core.Plane;
+import com.google.ar.core.Point;
+import com.google.ar.core.Session;
+import com.google.ar.core.Trackable;
+import com.google.ar.core.TrackingState;
+import com.google.ar.core.exceptions.CameraNotAvailableException;
+import com.google.ar.core.exceptions.UnavailableApkTooOldException;
+import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException;
+import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException;
+import com.google.ar.core.exceptions.UnavailableSdkTooOldException;
+import com.google.ar.core.exceptions.UnavailableUserDeclinedInstallationException;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+
+import javax.microedition.khronos.egl.EGLConfig;
+import javax.microedition.khronos.opengles.GL10;
 
 public class MainActivity extends Activity implements SensorEventListener {
-    private WebView webView;
+    private GLSurfaceView surfaceView;
+    private SprayRenderer renderer;
+    private Session session;
+    private boolean installRequested;
+    private boolean shouldConfigureSession = false;
+    private boolean hasCameraPermission = false;
+
+    private TextView statusText;
+    private TextView modeBadge;
+    private ProgressBar paintMeter;
+    private Button colorButton;
+
     private SensorManager sensorManager;
     private Sensor accelerometer;
     private long lastShake = 0;
     private float lastX, lastY, lastZ;
     private boolean hasLast = false;
 
-    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         super.onCreate(savedInstanceState);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         hideSystemBars();
-
-        if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{ Manifest.permission.CAMERA }, 7);
+        hasCameraPermission = Build.VERSION.SDK_INT < 23 || checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+        if (!hasCameraPermission && Build.VERSION.SDK_INT >= 23) {
+            requestPermissions(new String[]{ Manifest.permission.CAMERA }, 17);
         }
 
-        webView = new WebView(this);
-        setContentView(webView);
+        renderer = new SprayRenderer(this);
+        surfaceView = new GLSurfaceView(this);
+        surfaceView.setPreserveEGLContextOnPause(true);
+        surfaceView.setEGLContextClientVersion(2);
+        surfaceView.setRenderer(renderer);
+        surfaceView.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
 
-        WebSettings s = webView.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setDatabaseEnabled(true);
-        s.setAllowFileAccess(true);
-        s.setAllowContentAccess(true);
-        s.setMediaPlaybackRequiresUserGesture(false);
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        FrameLayout root = new FrameLayout(this);
+        root.addView(surfaceView, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(makeHud(), new FrameLayout.LayoutParams(-1, -1));
+        setContentView(root);
 
-        webView.setWebViewClient(new WebViewClient());
-        webView.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onPermissionRequest(final PermissionRequest request) {
-                runOnUiThread(() -> request.grant(request.getResources()));
-            }
-        });
-
-        webView.addJavascriptInterface(new CamsonBridge(), "CamsonAndroid");
-        webView.loadUrl("file:///android_asset/index.html");
-
+        installRequested = false;
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         if (sensorManager != null) accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
     }
 
-    private void hideSystemBars() {
-        getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                        | View.SYSTEM_UI_FLAG_FULLSCREEN
-                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        );
+    private View makeHud() {
+        FrameLayout hud = new FrameLayout(this);
+        hud.setPadding(dp(12), dp(12), dp(12), dp(12));
+
+        TextView logo = new TextView(this);
+        logo.setText("CAMSON\nMAG");
+        logo.setTextColor(Color.WHITE);
+        logo.setTextSize(42);
+        logo.setLineSpacing(-10, .9f);
+        logo.setTypeface(Typeface.DEFAULT_BOLD);
+        logo.setShadowLayer(8, 5, 5, Color.BLACK);
+        FrameLayout.LayoutParams logoLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+        logoLp.topMargin = dp(8);
+        logoLp.leftMargin = dp(8);
+        hud.addView(logo, logoLp);
+
+        modeBadge = new TextView(this);
+        modeBadge.setText("AR = SPRAY");
+        modeBadge.setTextColor(Color.rgb(182,255,53));
+        modeBadge.setTextSize(14);
+        modeBadge.setTypeface(Typeface.DEFAULT_BOLD);
+        modeBadge.setGravity(Gravity.CENTER);
+        modeBadge.setPadding(dp(14), dp(8), dp(14), dp(8));
+        modeBadge.setBackground(pill(Color.argb(210,0,0,0), Color.argb(70,255,255,255), dp(28)));
+        FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        badgeLp.topMargin = dp(22);
+        badgeLp.rightMargin = dp(8);
+        hud.addView(modeBadge, badgeLp);
+
+        TextView cross = new TextView(this);
+        cross.setText("+");
+        cross.setTextColor(Color.argb(210,255,255,255));
+        cross.setTextSize(50);
+        cross.setGravity(Gravity.CENTER);
+        cross.setBackground(pill(Color.argb(60,0,0,0), Color.argb(120,255,255,255), dp(44)));
+        FrameLayout.LayoutParams crossLp = new FrameLayout.LayoutParams(dp(86), dp(86), Gravity.CENTER);
+        hud.addView(cross, crossLp);
+
+        statusText = new TextView(this);
+        statusText.setText("Mueve el móvil hasta detectar una pared o suelo. Volumen = pintar.");
+        statusText.setTextColor(Color.WHITE);
+        statusText.setTextSize(12);
+        statusText.setGravity(Gravity.CENTER);
+        statusText.setPadding(dp(10), dp(8), dp(10), dp(8));
+        statusText.setBackground(pill(Color.argb(185,0,0,0), Color.argb(70,255,255,255), dp(18)));
+        FrameLayout.LayoutParams statusLp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        statusLp.topMargin = dp(118);
+        statusLp.leftMargin = dp(24);
+        statusLp.rightMargin = dp(24);
+        hud.addView(statusText, statusLp);
+
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setOrientation(LinearLayout.VERTICAL);
+        bottom.setGravity(Gravity.CENTER);
+        bottom.setPadding(dp(8), dp(8), dp(8), dp(8));
+
+        paintMeter = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        paintMeter.setMax(100);
+        paintMeter.setProgress(100);
+        bottom.addView(paintMeter, new LinearLayout.LayoutParams(-1, dp(22)));
+
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        buttons.setGravity(Gravity.CENTER);
+        buttons.setPadding(0, dp(8), 0, 0);
+        colorButton = hudButton("COLOR", Color.rgb(182,255,53), Color.BLACK);
+        Button sprayButton = hudButton("SPRAY", Color.rgb(255,79,216), Color.WHITE);
+        Button clearButton = hudButton("LIMPIAR", Color.rgb(255,48,48), Color.WHITE);
+        buttons.addView(colorButton, new LinearLayout.LayoutParams(0, dp(58), 1));
+        buttons.addView(sprayButton, new LinearLayout.LayoutParams(0, dp(58), 1));
+        buttons.addView(clearButton, new LinearLayout.LayoutParams(0, dp(58), 1));
+        bottom.addView(buttons, new LinearLayout.LayoutParams(-1, -2));
+
+        FrameLayout.LayoutParams bottomLp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+        bottomLp.bottomMargin = dp(8);
+        hud.addView(bottom, bottomLp);
+
+        colorButton.setOnClickListener(v -> {
+            renderer.nextColor();
+            colorButton.setText(renderer.colorName());
+            vibrate(25);
+        });
+        clearButton.setOnClickListener(v -> {
+            surfaceView.queueEvent(() -> renderer.clearMarks());
+            setStatus("Pared limpia. La lata borra sus fantasmas.");
+        });
+        sprayButton.setOnTouchListener((v, e) -> {
+            if (e.getAction() == MotionEvent.ACTION_DOWN) { startSpray(); return true; }
+            if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) { stopSpray(); return true; }
+            return true;
+        });
+        return hud;
     }
 
-    private void js(String code) {
-        if (webView != null) webView.post(() -> webView.evaluateJavascript(code, null));
+    private Button hudButton(String text, int color, int textColor) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setTextSize(13);
+        b.setTextColor(textColor);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setAllCaps(false);
+        b.setBackground(pill(color, Color.argb(80,0,0,0), dp(16)));
+        return b;
+    }
+
+    private GradientDrawable pill(int color, int stroke, int radius) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color);
+        g.setCornerRadius(radius);
+        g.setStroke(dp(2), stroke);
+        return g;
+    }
+
+    private int dp(int v) { return (int)(v * getResources().getDisplayMetrics().density + .5f); }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        hideSystemBars();
+        if (!hasCameraPermission) return;
+        try {
+            if (session == null) {
+                switch (ArCoreApk.getInstance().requestInstall(this, !installRequested)) {
+                    case INSTALL_REQUESTED:
+                        installRequested = true;
+                        setStatus("Instalando/actualizando Servicios de Google Play para RA...");
+                        return;
+                    case INSTALLED:
+                        break;
+                }
+                session = new Session(this);
+                Config config = new Config(session);
+                config.setPlaneFindingMode(Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL);
+                config.setUpdateMode(Config.UpdateMode.LATEST_CAMERA_IMAGE);
+                session.configure(config);
+                shouldConfigureSession = true;
+                renderer.setSession(session);
+            }
+            if (shouldConfigureSession) {
+                shouldConfigureSession = false;
+                renderer.setDisplayGeometry(getWindowManager().getDefaultDisplay().getRotation(), surfaceView.getWidth(), surfaceView.getHeight());
+            }
+            session.resume();
+            surfaceView.onResume();
+        } catch (UnavailableArcoreNotInstalledException | UnavailableUserDeclinedInstallationException e) {
+            setStatus("ARCore no está instalado. Instala Servicios de Google Play para RA.");
+        } catch (UnavailableApkTooOldException e) {
+            setStatus("Actualiza Servicios de Google Play para RA.");
+        } catch (UnavailableSdkTooOldException e) {
+            setStatus("Actualiza esta app: SDK AR demasiado antiguo.");
+        } catch (UnavailableDeviceNotCompatibleException e) {
+            setStatus("Este dispositivo no aparece como compatible con ARCore.");
+        } catch (CameraNotAvailableException e) {
+            setStatus("La cámara está ocupada. Cierra otras apps y reabre Camson Mag.");
+        } catch (Exception e) {
+            setStatus("No se pudo iniciar AR: " + e.getMessage());
+        }
+        if (sensorManager != null && accelerometer != null) sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        surfaceView.onPause();
+        if (session != null) session.pause();
+        if (sensorManager != null) sensorManager.unregisterListener(this);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (session != null) {
+            session.close();
+            session = null;
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grants) {
+        super.onRequestPermissionsResult(requestCode, permissions, grants);
+        if (requestCode == 17) {
+            hasCameraPermission = grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED;
+            if (!hasCameraPermission) setStatus("Permiso de cámara denegado.");
+        }
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            startSpray();
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            stopSpray();
+            return true;
+        }
+        return super.onKeyUp(keyCode, event);
+    }
+
+    private void startSpray() {
+        renderer.setSpraying(true);
+        modeBadge.setText("PSSSSHHH");
+        vibrate(18);
+    }
+
+    private void stopSpray() {
+        renderer.setSpraying(false);
+        modeBadge.setText("VOL = SPRAY");
+    }
+
+    private void setStatus(String text) {
+        runOnUiThread(() -> statusText.setText(text));
+    }
+
+    private void updatePaint(int progress) {
+        runOnUiThread(() -> paintMeter.setProgress(progress));
+    }
+
+    private void reloadCan() {
+        renderer.reloadCan();
+        updatePaint(100);
+        setStatus("LATA RECARGADA. Busca una pared y dispara.");
+        vibrate(90);
     }
 
     private void vibrate(long ms) {
@@ -103,38 +343,14 @@ public class MainActivity extends Activity implements SensorEventListener {
         } catch (Exception ignored) {}
     }
 
-    @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-            js("window.startSpray && window.startSpray();");
-            vibrate(20);
-            return true;
-        }
-        return super.onKeyDown(keyCode, event);
-    }
-
-    @Override
-    public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-            js("window.stopSpray && window.stopSpray();");
-            return true;
-        }
-        return super.onKeyUp(keyCode, event);
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        hideSystemBars();
-        if (sensorManager != null && accelerometer != null) {
-            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
-        }
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        if (sensorManager != null) sensorManager.unregisterListener(this);
+    private void hideSystemBars() {
+        getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        | View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
     }
 
     @Override
@@ -153,49 +369,265 @@ public class MainActivity extends Activity implements SensorEventListener {
         long now = System.currentTimeMillis();
         if (force > 18.5f && now - lastShake > 900) {
             lastShake = now;
-            vibrate(80);
-            js("window.reloadCan && window.reloadCan();");
+            reloadCan();
         }
     }
-
     @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
 
-    public class CamsonBridge {
-        @JavascriptInterface
-        public void saveBase64(String filename, String mimeType, String base64) {
+    private class SprayRenderer implements GLSurfaceView.Renderer {
+        private final Activity activity;
+        private Session arSession;
+        private final BackgroundRenderer background = new BackgroundRenderer();
+        private final MarkRenderer markRenderer = new MarkRenderer();
+        private final List<SprayMark> marks = new ArrayList<>();
+        private final float[] viewMatrix = new float[16];
+        private final float[] projectionMatrix = new float[16];
+        private final float[] viewProjectionMatrix = new float[16];
+        private int viewportWidth = 1, viewportHeight = 1, displayRotation = 0;
+        private volatile boolean spraying = false;
+        private float paintLeft = 100f;
+        private long lastSprayMs = 0;
+        private int colorIndex = 0;
+        private final int[] colors = new int[] {
+                Color.rgb(182,255,53), Color.rgb(255,79,216), Color.rgb(92,232,255),
+                Color.rgb(255,228,94), Color.rgb(255,48,48), Color.rgb(245,238,224), Color.rgb(20,20,20)
+        };
+        private final String[] colorNames = new String[] { "LIMA", "MAGENTA", "CYAN", "AMARILLO", "ROJO", "BLANCO", "NEGRO" };
+
+        SprayRenderer(Activity activity) { this.activity = activity; }
+        void setSession(Session session) { this.arSession = session; }
+        void setSpraying(boolean b) { spraying = b; }
+        void reloadCan() { paintLeft = 100f; updatePaint(100); }
+        void nextColor() { colorIndex = (colorIndex + 1) % colors.length; }
+        String colorName() { return colorNames[colorIndex]; }
+        void setDisplayGeometry(int rotation, int width, int height) {
+            displayRotation = rotation;
+            viewportWidth = Math.max(1, width);
+            viewportHeight = Math.max(1, height);
+            if (arSession != null) arSession.setDisplayGeometry(displayRotation, viewportWidth, viewportHeight);
+        }
+        void clearMarks() {
+            for (SprayMark m : marks) m.anchor.detach();
+            marks.clear();
+        }
+
+        @Override public void onSurfaceCreated(GL10 gl, EGLConfig config) {
+            GLES20.glClearColor(0,0,0,1);
+            background.createOnGlThread();
+            markRenderer.createOnGlThread();
+        }
+
+        @Override public void onSurfaceChanged(GL10 gl, int width, int height) {
+            GLES20.glViewport(0,0,width,height);
+            setDisplayGeometry(getWindowManager().getDefaultDisplay().getRotation(), width, height);
+        }
+
+        @Override public void onDrawFrame(GL10 gl) {
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
+            if (arSession == null) return;
             try {
-                byte[] data = Base64.decode(base64, Base64.DEFAULT);
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    ContentResolver resolver = getContentResolver();
-                    ContentValues values = new ContentValues();
-                    values.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
-                    values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
-                    values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/CamsonMag");
-                    values.put(MediaStore.MediaColumns.IS_PENDING, 1);
-                    Uri uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-                    if (uri == null) throw new Exception("No se pudo crear archivo");
-                    OutputStream out = resolver.openOutputStream(uri);
-                    if (out != null) { out.write(data); out.close(); }
-                    values.clear();
-                    values.put(MediaStore.MediaColumns.IS_PENDING, 0);
-                    resolver.update(uri, values, null, null);
-                } else {
-                    File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "CamsonMag");
-                    if (!dir.exists()) dir.mkdirs();
-                    File file = new File(dir, filename);
-                    FileOutputStream out = new FileOutputStream(file);
-                    out.write(data);
-                    out.close();
+                arSession.setCameraTextureName(background.getTextureId());
+                Frame frame = arSession.update();
+                background.draw();
+                Camera camera = frame.getCamera();
+                if (camera.getTrackingState() != TrackingState.TRACKING) {
+                    setStatus("Mueve el móvil despacio para que AR encuentre pared o suelo.");
+                    return;
                 }
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Guardado en Descargas/CamsonMag", Toast.LENGTH_SHORT).show());
-            } catch (Exception e) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Error guardando: " + e.getMessage(), Toast.LENGTH_LONG).show());
+                camera.getViewMatrix(viewMatrix, 0);
+                camera.getProjectionMatrix(projectionMatrix, 0, 0.1f, 100.0f);
+                Matrix.multiplyMM(viewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0);
+                if (spraying) maybeSpray(frame);
+                GLES20.glEnable(GLES20.GL_BLEND);
+                GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
+                GLES20.glDepthMask(false);
+                for (Iterator<SprayMark> it = marks.iterator(); it.hasNext();) {
+                    SprayMark mark = it.next();
+                    if (mark.anchor.getTrackingState() == TrackingState.STOPPED) { it.remove(); continue; }
+                    if (mark.anchor.getTrackingState() == TrackingState.TRACKING) markRenderer.draw(mark, viewProjectionMatrix);
+                }
+                GLES20.glDepthMask(true);
+                GLES20.glDisable(GLES20.GL_BLEND);
+            } catch (Throwable t) {
+                setStatus("AR se ha quejado: " + t.getMessage());
             }
         }
 
-        @JavascriptInterface
-        public void toast(String msg) {
-            runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
+        private void maybeSpray(Frame frame) {
+            long now = System.currentTimeMillis();
+            if (now - lastSprayMs < 45) return;
+            lastSprayMs = now;
+            if (paintLeft <= 0f) {
+                setSpraying(false);
+                setStatus("Lata vacía. Agita para recargar.");
+                return;
+            }
+            List<HitResult> hits = frame.hitTest(viewportWidth / 2f, viewportHeight / 2f);
+            for (HitResult hit : hits) {
+                Trackable trackable = hit.getTrackable();
+                boolean goodPlane = trackable instanceof Plane && ((Plane) trackable).isPoseInPolygon(hit.getHitPose());
+                boolean goodPoint = trackable instanceof Point && ((Point) trackable).getOrientationMode() == Point.OrientationMode.ESTIMATED_SURFACE_NORMAL;
+                if (goodPlane || goodPoint) {
+                    Anchor anchor = hit.createAnchor();
+                    marks.add(new SprayMark(anchor, colors[colorIndex], 0.075f + (float)Math.random()*0.055f));
+                    while (marks.size() > 280) {
+                        SprayMark old = marks.remove(0);
+                        old.anchor.detach();
+                    }
+                    paintLeft = Math.max(0f, paintLeft - 0.65f);
+                    updatePaint((int) paintLeft);
+                    setStatus("Pintura anclada al mundo: mueve el móvil y debería quedarse ahí.");
+                    return;
+                }
+            }
+            setStatus("No encuentro pared/suelo en la mira. Apunta a una superficie con textura.");
         }
+    }
+
+    private static class SprayMark {
+        final Anchor anchor;
+        final float[] rgba;
+        final float radius;
+        final float jitter;
+        SprayMark(Anchor anchor, int color, float radius) {
+            this.anchor = anchor;
+            this.radius = radius;
+            this.jitter = (float)Math.random() * 6.28318f;
+            this.rgba = new float[] {
+                    Color.red(color)/255f, Color.green(color)/255f, Color.blue(color)/255f, .92f
+            };
+        }
+    }
+
+    private static class BackgroundRenderer {
+        private int textureId = -1;
+        private int program;
+        private int positionAttrib;
+        private int texCoordAttrib;
+        private int textureUniform;
+        private final FloatBuffer quadVertices = floatBuffer(new float[] { -1,-1, 1,-1, -1,1, 1,1 });
+        private final FloatBuffer quadTex = floatBuffer(new float[] { 0,1, 1,1, 0,0, 1,0 });
+
+        int getTextureId() { return textureId; }
+        void createOnGlThread() {
+            int[] textures = new int[1];
+            GLES20.glGenTextures(1, textures, 0);
+            textureId = textures[0];
+            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId);
+            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+            program = createProgram(
+                    "attribute vec4 a_Position; attribute vec2 a_TexCoord; varying vec2 v_TexCoord; void main(){ gl_Position=a_Position; v_TexCoord=a_TexCoord; }",
+                    "#extension GL_OES_EGL_image_external : require\nprecision mediump float; uniform samplerExternalOES u_Texture; varying vec2 v_TexCoord; void main(){ gl_FragColor=texture2D(u_Texture, v_TexCoord); }");
+            positionAttrib = GLES20.glGetAttribLocation(program, "a_Position");
+            texCoordAttrib = GLES20.glGetAttribLocation(program, "a_TexCoord");
+            textureUniform = GLES20.glGetUniformLocation(program, "u_Texture");
+        }
+        void draw() {
+            GLES20.glDisable(GLES20.GL_DEPTH_TEST);
+            GLES20.glDepthMask(false);
+            GLES20.glUseProgram(program);
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId);
+            GLES20.glUniform1i(textureUniform, 0);
+            quadVertices.position(0);
+            GLES20.glVertexAttribPointer(positionAttrib, 2, GLES20.GL_FLOAT, false, 0, quadVertices);
+            GLES20.glEnableVertexAttribArray(positionAttrib);
+            quadTex.position(0);
+            GLES20.glVertexAttribPointer(texCoordAttrib, 2, GLES20.GL_FLOAT, false, 0, quadTex);
+            GLES20.glEnableVertexAttribArray(texCoordAttrib);
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+            GLES20.glDisableVertexAttribArray(positionAttrib);
+            GLES20.glDisableVertexAttribArray(texCoordAttrib);
+            GLES20.glDepthMask(true);
+            GLES20.glEnable(GLES20.GL_DEPTH_TEST);
+        }
+    }
+
+    private static class MarkRenderer {
+        private int program;
+        private int positionAttrib;
+        private int uvAttrib;
+        private int mvpUniform;
+        private int colorUniform;
+        private final FloatBuffer vertices = floatBuffer(new float[] {
+                -1,0,-1,  1,0,-1,  -1,0,1,  1,0,1
+        });
+        private final FloatBuffer uvs = floatBuffer(new float[] { 0,0, 1,0, 0,1, 1,1 });
+        private final float[] model = new float[16];
+        private final float[] scale = new float[16];
+        private final float[] tmp = new float[16];
+        private final float[] mvp = new float[16];
+
+        void createOnGlThread() {
+            program = createProgram(
+                    "uniform mat4 u_Mvp; attribute vec3 a_Position; attribute vec2 a_Uv; varying vec2 v_Uv; void main(){ v_Uv=a_Uv; gl_Position=u_Mvp*vec4(a_Position,1.0); }",
+                    "precision mediump float; uniform vec4 u_Color; varying vec2 v_Uv; void main(){ float d=distance(v_Uv, vec2(.5,.5)); if(d>.5) discard; float mist=1.0-smoothstep(.12,.50,d); float grain=fract(sin(dot(v_Uv*91.7,vec2(12.9898,78.233)))*43758.5453); float a=(.25+grain*.75)*mist*u_Color.a; gl_FragColor=vec4(u_Color.rgb,a); }");
+            positionAttrib = GLES20.glGetAttribLocation(program, "a_Position");
+            uvAttrib = GLES20.glGetAttribLocation(program, "a_Uv");
+            mvpUniform = GLES20.glGetUniformLocation(program, "u_Mvp");
+            colorUniform = GLES20.glGetUniformLocation(program, "u_Color");
+        }
+        void draw(SprayMark mark, float[] viewProjectionMatrix) {
+            mark.anchor.getPose().toMatrix(model, 0);
+            Matrix.setIdentityM(scale, 0);
+            Matrix.scaleM(scale, 0, mark.radius, mark.radius, mark.radius);
+            Matrix.multiplyMM(tmp, 0, model, 0, scale, 0);
+            Matrix.multiplyMM(mvp, 0, viewProjectionMatrix, 0, tmp, 0);
+            GLES20.glUseProgram(program);
+            GLES20.glUniformMatrix4fv(mvpUniform, 1, false, mvp, 0);
+            GLES20.glUniform4fv(colorUniform, 1, mark.rgba, 0);
+            vertices.position(0);
+            GLES20.glVertexAttribPointer(positionAttrib, 3, GLES20.GL_FLOAT, false, 0, vertices);
+            GLES20.glEnableVertexAttribArray(positionAttrib);
+            uvs.position(0);
+            GLES20.glVertexAttribPointer(uvAttrib, 2, GLES20.GL_FLOAT, false, 0, uvs);
+            GLES20.glEnableVertexAttribArray(uvAttrib);
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+            GLES20.glDisableVertexAttribArray(positionAttrib);
+            GLES20.glDisableVertexAttribArray(uvAttrib);
+        }
+    }
+
+    private static FloatBuffer floatBuffer(float[] values) {
+        ByteBuffer bb = ByteBuffer.allocateDirect(values.length * 4);
+        bb.order(ByteOrder.nativeOrder());
+        FloatBuffer fb = bb.asFloatBuffer();
+        fb.put(values);
+        fb.position(0);
+        return fb;
+    }
+
+    private static int loadShader(int type, String source) {
+        int shader = GLES20.glCreateShader(type);
+        GLES20.glShaderSource(shader, source);
+        GLES20.glCompileShader(shader);
+        int[] compiled = new int[1];
+        GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compiled, 0);
+        if (compiled[0] == 0) {
+            String log = GLES20.glGetShaderInfoLog(shader);
+            GLES20.glDeleteShader(shader);
+            throw new RuntimeException("Shader error: " + log);
+        }
+        return shader;
+    }
+
+    private static int createProgram(String vertex, String fragment) {
+        int v = loadShader(GLES20.GL_VERTEX_SHADER, vertex);
+        int f = loadShader(GLES20.GL_FRAGMENT_SHADER, fragment);
+        int program = GLES20.glCreateProgram();
+        GLES20.glAttachShader(program, v);
+        GLES20.glAttachShader(program, f);
+        GLES20.glLinkProgram(program);
+        int[] linked = new int[1];
+        GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, linked, 0);
+        if (linked[0] == 0) {
+            String log = GLES20.glGetProgramInfoLog(program);
+            GLES20.glDeleteProgram(program);
+            throw new RuntimeException("Program error: " + log);
+        }
+        return program;
     }
 }

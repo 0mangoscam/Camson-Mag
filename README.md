@@ -1,16 +1,14 @@
-# Camson Mag
+# Camson Mag AR v2
 
-App Android experimental: el móvil funciona como una lata de spray digital sobre la cámara.
+Camson Mag convierte el móvil en una lata de spray AR.
 
-## Primer prototipo
-
-- Cámara en vivo
-- Canvas de pintura sobre la cámara
-- Botón de volumen = spray
-- Agitar móvil = recargar lata
-- Guardar captura en Descargas/CamsonMag
-- Estética sucia, glitch, lata digital
+- Cámara ARCore nativa.
+- Detección de suelo y paredes.
+- Botón de volumen = spray.
+- La pintura se ancla al mundo usando anchors de ARCore.
+- Agitar el móvil = recargar lata.
+- Color y limpiar.
 
 ## Build
 
-GitHub Actions compila la APK con `.github/workflows/build-apk.yml`.
+El workflow de GitHub Actions compila `assembleDebug` y sube el APK como artifact.
