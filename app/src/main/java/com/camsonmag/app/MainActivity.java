@@ -32,11 +32,13 @@ import android.widget.Toast;
 import android.graphics.drawable.GradientDrawable;
 
 import com.google.ar.core.Anchor;
+import com.google.ar.core.Coordinates2d;
 import com.google.ar.core.ArCoreApk;
 import com.google.ar.core.Camera;
 import com.google.ar.core.Config;
 import com.google.ar.core.Frame;
 import com.google.ar.core.HitResult;
+import com.google.ar.core.InstantPlacementPoint;
 import com.google.ar.core.Plane;
 import com.google.ar.core.Point;
 import com.google.ar.core.Session;
@@ -240,6 +242,11 @@ public class MainActivity extends Activity implements SensorEventListener {
                 Config config = new Config(session);
                 config.setPlaneFindingMode(Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL);
                 config.setUpdateMode(Config.UpdateMode.LATEST_CAMERA_IMAGE);
+                config.setFocusMode(Config.FocusMode.AUTO);
+                config.setInstantPlacementMode(Config.InstantPlacementMode.LOCAL_Y_UP);
+                if (session.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
+                    config.setDepthMode(Config.DepthMode.AUTOMATIC);
+                }
                 session.configure(config);
                 shouldConfigureSession = true;
                 renderer.setSession(session);
@@ -428,7 +435,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             try {
                 arSession.setCameraTextureName(background.getTextureId());
                 Frame frame = arSession.update();
-                background.draw();
+                background.draw(frame);
                 Camera camera = frame.getCamera();
                 if (camera.getTrackingState() != TrackingState.TRACKING) {
                     setStatus("Mueve el móvil despacio para que AR encuentre pared o suelo.");
@@ -462,25 +469,47 @@ public class MainActivity extends Activity implements SensorEventListener {
                 setStatus("Lata vacía. Agita para recargar.");
                 return;
             }
+
+            HitResult bestHit = findWorldHit(frame);
+            if (bestHit != null) {
+                Anchor anchor = bestHit.createAnchor();
+                marks.add(new SprayMark(anchor, colors[colorIndex], 0.075f + (float)Math.random()*0.055f));
+                while (marks.size() > 280) {
+                    SprayMark old = marks.remove(0);
+                    old.anchor.detach();
+                }
+                paintLeft = Math.max(0f, paintLeft - 0.65f);
+                updatePaint((int) paintLeft);
+                Trackable t = bestHit.getTrackable();
+                if (t instanceof InstantPlacementPoint) {
+                    setStatus("Pintura colocada provisionalmente. Sigue moviendo el móvil para que AR la fije mejor.");
+                } else {
+                    setStatus("Pintura anclada al mundo. Mueve el móvil: debería quedarse ahí.");
+                }
+                return;
+            }
+            setStatus("Aún no tengo superficie. Muévete lento en forma de 8 y apunta a una pared con textura.");
+        }
+
+        private HitResult findWorldHit(Frame frame) {
             List<HitResult> hits = frame.hitTest(viewportWidth / 2f, viewportHeight / 2f);
             for (HitResult hit : hits) {
                 Trackable trackable = hit.getTrackable();
-                boolean goodPlane = trackable instanceof Plane && ((Plane) trackable).isPoseInPolygon(hit.getHitPose());
-                boolean goodPoint = trackable instanceof Point && ((Point) trackable).getOrientationMode() == Point.OrientationMode.ESTIMATED_SURFACE_NORMAL;
-                if (goodPlane || goodPoint) {
-                    Anchor anchor = hit.createAnchor();
-                    marks.add(new SprayMark(anchor, colors[colorIndex], 0.075f + (float)Math.random()*0.055f));
-                    while (marks.size() > 280) {
-                        SprayMark old = marks.remove(0);
-                        old.anchor.detach();
-                    }
-                    paintLeft = Math.max(0f, paintLeft - 0.65f);
-                    updatePaint((int) paintLeft);
-                    setStatus("Pintura anclada al mundo: mueve el móvil y debería quedarse ahí.");
-                    return;
-                }
+                boolean goodPlane = trackable instanceof Plane
+                        && trackable.getTrackingState() == TrackingState.TRACKING
+                        && ((Plane) trackable).isPoseInPolygon(hit.getHitPose());
+                boolean goodPoint = trackable instanceof Point
+                        && trackable.getTrackingState() == TrackingState.TRACKING
+                        && ((Point) trackable).getOrientationMode() == Point.OrientationMode.ESTIMATED_SURFACE_NORMAL;
+                if (goodPlane || goodPoint) return hit;
             }
-            setStatus("No encuentro pared/suelo en la mira. Apunta a una superficie con textura.");
+            try {
+                List<HitResult> instantHits = frame.hitTestInstantPlacement(viewportWidth / 2f, viewportHeight / 2f, 1.35f);
+                for (HitResult hit : instantHits) {
+                    if (hit.getTrackable() instanceof InstantPlacementPoint) return hit;
+                }
+            } catch (Throwable ignored) {}
+            return null;
         }
     }
 
@@ -505,8 +534,9 @@ public class MainActivity extends Activity implements SensorEventListener {
         private int positionAttrib;
         private int texCoordAttrib;
         private int textureUniform;
+        private boolean textureCoordsReady = false;
         private final FloatBuffer quadVertices = floatBuffer(new float[] { -1,-1, 1,-1, -1,1, 1,1 });
-        private final FloatBuffer quadTex = floatBuffer(new float[] { 0,1, 1,1, 0,0, 1,0 });
+        private final FloatBuffer transformedQuadTex = floatBuffer(new float[] { 0,0, 0,0, 0,0, 0,0 });
 
         int getTextureId() { return textureId; }
         void createOnGlThread() {
@@ -525,7 +555,17 @@ public class MainActivity extends Activity implements SensorEventListener {
             texCoordAttrib = GLES20.glGetAttribLocation(program, "a_TexCoord");
             textureUniform = GLES20.glGetUniformLocation(program, "u_Texture");
         }
-        void draw() {
+        void draw(Frame frame) {
+            if (frame != null && (frame.hasDisplayGeometryChanged() || !textureCoordsReady)) {
+                quadVertices.position(0);
+                transformedQuadTex.position(0);
+                frame.transformCoordinates2d(
+                        Coordinates2d.OPENGL_NORMALIZED_DEVICE_COORDINATES,
+                        quadVertices,
+                        Coordinates2d.TEXTURE_NORMALIZED,
+                        transformedQuadTex);
+                textureCoordsReady = true;
+            }
             GLES20.glDisable(GLES20.GL_DEPTH_TEST);
             GLES20.glDepthMask(false);
             GLES20.glUseProgram(program);
@@ -535,8 +575,8 @@ public class MainActivity extends Activity implements SensorEventListener {
             quadVertices.position(0);
             GLES20.glVertexAttribPointer(positionAttrib, 2, GLES20.GL_FLOAT, false, 0, quadVertices);
             GLES20.glEnableVertexAttribArray(positionAttrib);
-            quadTex.position(0);
-            GLES20.glVertexAttribPointer(texCoordAttrib, 2, GLES20.GL_FLOAT, false, 0, quadTex);
+            transformedQuadTex.position(0);
+            GLES20.glVertexAttribPointer(texCoordAttrib, 2, GLES20.GL_FLOAT, false, 0, transformedQuadTex);
             GLES20.glEnableVertexAttribArray(texCoordAttrib);
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
             GLES20.glDisableVertexAttribArray(positionAttrib);
