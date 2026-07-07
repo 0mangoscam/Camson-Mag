@@ -92,6 +92,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     private Button colorButton;
     private Button photoButton;
     private Button sprayButton;
+    private Button styleButton;
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
@@ -193,10 +194,12 @@ public class MainActivity extends Activity implements SensorEventListener {
         buttons.setGravity(Gravity.CENTER);
         buttons.setPadding(0, dp(8), 0, 0);
         colorButton = hudButton("COLOR", Color.rgb(182,255,53), Color.BLACK);
+        styleButton = hudButton("TIPO", Color.rgb(255,228,94), Color.BLACK);
         photoButton = hudButton("FOTO", Color.rgb(92,232,255), Color.BLACK);
         sprayButton = hudButton("SPRAY", Color.rgb(255,79,216), Color.WHITE);
         Button clearButton = hudButton("LIMPIAR", Color.rgb(255,48,48), Color.WHITE);
         buttons.addView(colorButton, new LinearLayout.LayoutParams(0, dp(58), 1));
+        buttons.addView(styleButton, new LinearLayout.LayoutParams(0, dp(58), 1));
         buttons.addView(photoButton, new LinearLayout.LayoutParams(0, dp(58), 1));
         buttons.addView(sprayButton, new LinearLayout.LayoutParams(0, dp(58), 1));
         buttons.addView(clearButton, new LinearLayout.LayoutParams(0, dp(58), 1));
@@ -216,6 +219,17 @@ public class MainActivity extends Activity implements SensorEventListener {
                 colorButton.setText(renderer.colorName());
             }
             vibrate(25);
+        });
+        styleButton.setOnClickListener(v -> {
+            if (photoModeActive && activePhotoView != null) {
+                activePhotoView.nextSprayStyle();
+                styleButton.setText(activePhotoView.sprayStyleName());
+                setStatus("Boquilla cambiada a " + activePhotoView.sprayStyleName() + ".");
+                vibrate(20);
+            } else {
+                setStatus("Los sprays artísticos avanzados están en MODO FOTO.");
+                vibrate(15);
+            }
         });
         photoButton.setOnClickListener(v -> capturePhotoCanvas());
         clearButton.setOnClickListener(v -> {
@@ -275,7 +289,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         overlay.addView(title, titleLp);
 
         TextView hint = new TextView(this);
-        hint.setText("Mueve la cruz con el dedo y pulsa volumen o SPRAY para rociar la foto como una lata digital.");
+        hint.setText("Apunta moviendo el móvil como si fuera una lata. Usa TIPO para cambiar de boquilla y pulsa volumen o SPRAY.");
         hint.setTextColor(Color.WHITE);
         hint.setTextSize(12);
         hint.setGravity(Gravity.CENTER);
@@ -293,17 +307,21 @@ public class MainActivity extends Activity implements SensorEventListener {
         controls.setPadding(dp(8), dp(8), dp(8), dp(8));
         Button save = hudButton("GUARDAR", Color.rgb(182,255,53), Color.BLACK);
         Button color = hudButton("COLOR", Color.rgb(92,232,255), Color.BLACK);
+        Button style = hudButton("TIPO", Color.rgb(255,228,94), Color.BLACK);
         Button spray = hudButton("SPRAY", Color.rgb(255,79,216), Color.WHITE);
         Button clear = hudButton("LIMPIAR", Color.rgb(255,48,48), Color.WHITE);
         Button exit = hudButton("SALIR", Color.rgb(20,20,20), Color.WHITE);
         controls.addView(save, new LinearLayout.LayoutParams(0, dp(58), 1));
         controls.addView(color, new LinearLayout.LayoutParams(0, dp(58), 1));
+        controls.addView(style, new LinearLayout.LayoutParams(0, dp(58), 1));
         controls.addView(spray, new LinearLayout.LayoutParams(0, dp(58), 1));
         controls.addView(clear, new LinearLayout.LayoutParams(0, dp(58), 1));
         controls.addView(exit, new LinearLayout.LayoutParams(0, dp(58), 1));
         FrameLayout.LayoutParams controlsLp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
         controlsLp.bottomMargin = dp(10);
         overlay.addView(controls, controlsLp);
+        color.setText(canvas.colorName());
+        style.setText(canvas.sprayStyleName());
 
         save.setOnClickListener(v -> {
             try {
@@ -318,6 +336,15 @@ public class MainActivity extends Activity implements SensorEventListener {
         color.setOnClickListener(v -> {
             canvas.nextColor();
             color.setText(canvas.colorName());
+            colorButton.setText(canvas.colorName());
+            vibrate(20);
+        });
+        style.setOnClickListener(v -> {
+            canvas.nextSprayStyle();
+            String styleName = canvas.sprayStyleName();
+            style.setText(styleName);
+            if (styleButton != null) styleButton.setText(styleName);
+            setStatus("Boquilla de foto: " + styleName + ".");
             vibrate(20);
         });
         spray.setOnTouchListener((v, e) -> {
@@ -340,8 +367,9 @@ public class MainActivity extends Activity implements SensorEventListener {
         photoOverlay = overlay;
         rootLayout.addView(photoOverlay, new FrameLayout.LayoutParams(-1, -1));
         colorButton.setText(canvas.colorName());
+        if (styleButton != null) styleButton.setText(canvas.sprayStyleName());
         updatePaint(canvas.paintPercent());
-        setStatus("Modo foto activo. Mueve la mira con el dedo y pulsa volumen o SPRAY para pintar la foto.");
+        setStatus("Modo foto activo. Mueve el móvil para apuntar y pulsa volumen o SPRAY para pintar la foto.");
     }
 
     private void closePhotoMode() {
@@ -353,6 +381,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         activePhotoView = null;
         photoModeActive = false;
         colorButton.setText(renderer.colorName());
+        if (styleButton != null) styleButton.setText("TIPO");
         updatePaint(100);
         modeBadge.setText(renderer != null && renderer.isMappingReady() ? "VOL = SPRAY" : "MAPEANDO");
         setStatus("Has vuelto al modo AR. Usa FOTO cuando quieras congelar la escena y pintar sin tracking.");
@@ -507,7 +536,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         if (photoModeActive && activePhotoView != null) {
             activePhotoView.setSpraying(true);
             modeBadge.setText("FOTO SPRAY");
-            setStatus("Spray activo sobre la foto. Mueve la mira con el dedo si quieres apuntar a otro sitio.");
+            setStatus("Spray activo sobre la foto. Apunta moviendo el móvil como una lata digital.");
             vibrate(18);
             return;
         }
@@ -612,6 +641,10 @@ public class MainActivity extends Activity implements SensorEventListener {
     @Override
     public void onSensorChanged(SensorEvent event) {
         float x = event.values[0], y = event.values[1], z = event.values[2];
+        if (photoModeActive && activePhotoView != null) {
+            int rotation = getWindowManager().getDefaultDisplay().getRotation();
+            activePhotoView.updateTiltAim(x, y, z, rotation);
+        }
         if (!hasLast) { lastX = x; lastY = y; lastZ = z; hasLast = true; return; }
         float dx = x - lastX, dy = y - lastY, dz = z - lastZ;
         lastX = x; lastY = y; lastZ = z;
@@ -637,6 +670,8 @@ public class MainActivity extends Activity implements SensorEventListener {
         private float aimX = -1f, aimY = -1f;
         private boolean spraying = false;
         private float paintLeft = 100f;
+        private float smoothTiltX = 0f, smoothTiltY = 0f;
+        private int sprayStyleIndex = 0;
         private final int[] colors = new int[] {
                 Color.rgb(182,255,53),
                 Color.rgb(255,79,216),
@@ -648,6 +683,9 @@ public class MainActivity extends Activity implements SensorEventListener {
         };
         private final String[] colorNames = new String[] {
                 "LIMA", "MAGENTA", "CYAN", "AMARILLO", "ROJO", "BLANCO", "NEGRO"
+        };
+        private final String[] sprayStyles = new String[] {
+                "CLASSIC", "SOMBRA", "3D", "FATCAP"
         };
 
         private final Runnable sprayLoop = new Runnable() {
@@ -661,7 +699,7 @@ public class MainActivity extends Activity implements SensorEventListener {
                 }
                 sprayBurst();
                 invalidate();
-                postDelayed(this, 36);
+                postDelayed(this, 34);
             }
         };
 
@@ -670,6 +708,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             baseBitmap = bitmap;
             dotPaint.setStyle(Paint.Style.FILL);
             dotPaint.setColor(colors[colorIndex]);
+            dotPaint.setStrokeCap(Paint.Cap.ROUND);
             crossPaint.setStyle(Paint.Style.STROKE);
             crossPaint.setStrokeWidth(dp(2));
             crossPaint.setColor(Color.WHITE);
@@ -680,9 +719,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             if (value == spraying) return;
             spraying = value;
             removeCallbacks(sprayLoop);
-            if (spraying) {
-                post(sprayLoop);
-            }
+            if (spraying) post(sprayLoop);
         }
 
         void reloadCan() {
@@ -700,9 +737,14 @@ public class MainActivity extends Activity implements SensorEventListener {
             invalidate();
         }
 
-        String colorName() {
-            return colorNames[colorIndex];
+        String colorName() { return colorNames[colorIndex]; }
+
+        void nextSprayStyle() {
+            sprayStyleIndex = (sprayStyleIndex + 1) % sprayStyles.length;
+            invalidate();
         }
+
+        String sprayStyleName() { return sprayStyles[sprayStyleIndex]; }
 
         void clearPaint() {
             if (strokesBitmap != null) {
@@ -716,6 +758,26 @@ public class MainActivity extends Activity implements SensorEventListener {
             Canvas c = new Canvas(out);
             draw(c);
             return out;
+        }
+
+        void updateTiltAim(float x, float y, float z, int rotation) {
+            if (getWidth() <= 0 || getHeight() <= 0) return;
+            float tx, ty;
+            switch (rotation) {
+                case 1: tx = y; ty = x; break;      // landscape 90
+                case 2: tx = x; ty = -y; break;     // reverse portrait
+                case 3: tx = -y; ty = -x; break;    // landscape 270
+                default: tx = -x; ty = y; break;    // portrait
+            }
+            smoothTiltX = smoothTiltX * 0.86f + tx * 0.14f;
+            smoothTiltY = smoothTiltY * 0.86f + ty * 0.14f;
+            float nx = clamp(smoothTiltX / 5.8f, -1f, 1f);
+            float ny = clamp(smoothTiltY / 5.8f, -1f, 1f);
+            aimX = getWidth() * (0.5f + nx * 0.33f);
+            aimY = getHeight() * (0.5f + ny * 0.33f);
+            aimX = clamp(aimX, dp(18), getWidth() - dp(18));
+            aimY = clamp(aimY, dp(18), getHeight() - dp(18));
+            postInvalidateOnAnimation();
         }
 
         @Override
@@ -749,48 +811,106 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         private void drawCrosshair(Canvas canvas) {
             if (aimX < 0 || aimY < 0) return;
-            crossPaint.setColor(Color.argb(210, 255, 255, 255));
             float r = dp(18);
+            crossPaint.setColor(Color.argb(210, 255, 255, 255));
             canvas.drawCircle(aimX, aimY, r, crossPaint);
             canvas.drawLine(aimX - r - dp(10), aimY, aimX - dp(4), aimY, crossPaint);
             canvas.drawLine(aimX + dp(4), aimY, aimX + r + dp(10), aimY, crossPaint);
             canvas.drawLine(aimX, aimY - r - dp(10), aimX, aimY - dp(4), crossPaint);
             canvas.drawLine(aimX, aimY + dp(4), aimX, aimY + r + dp(10), crossPaint);
+
+            Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
+            label.setTextSize(dp(12));
+            label.setColor(Color.WHITE);
+            label.setShadowLayer(dp(2), 0, 0, Color.BLACK);
+            canvas.drawText(sprayStyleName(), aimX + dp(26), aimY - dp(10), label);
         }
 
         private void sprayBurst() {
             if (strokesCanvas == null) return;
-            int dots = 20;
-            float spread = dp(28);
-            for (int i = 0; i < dots; i++) {
-                double a = Math.random() * Math.PI * 2.0;
-                float radius = (float)(Math.random() * spread);
-                float px = aimX + (float)Math.cos(a) * radius;
-                float py = aimY + (float)Math.sin(a) * radius;
-                float size = dp(2) + (float)Math.random() * dp(8);
-                int alpha = 80 + (int)(Math.random() * 140);
-                dotPaint.setColor(colors[colorIndex]);
-                dotPaint.setAlpha(alpha);
-                strokesCanvas.drawCircle(px, py, size, dotPaint);
+            switch (sprayStyleIndex) {
+                case 1: sprayShadow(); break;
+                case 2: spray3D(); break;
+                case 3: sprayFatCap(); break;
+                default: sprayClassic(); break;
             }
-            for (int i = 0; i < 6; i++) {
-                float dripLen = dp(4) + (float)Math.random() * dp(18);
-                float px = aimX + ((float)Math.random() - 0.5f) * spread * 0.4f;
-                float py = aimY + ((float)Math.random() - 0.5f) * spread * 0.4f;
-                dotPaint.setColor(colors[colorIndex]);
-                dotPaint.setAlpha(90 + (int)(Math.random() * 80));
-                dotPaint.setStrokeWidth(dp(2) + (float)Math.random() * dp(4));
-                strokesCanvas.drawLine(px, py, px + ((float)Math.random() - 0.5f) * dp(4), py + dripLen, dotPaint);
-            }
-            paintLeft = Math.max(0f, paintLeft - 0.55f);
+            paintLeft = Math.max(0f, paintLeft - 0.58f);
             updatePaint(paintPercent());
         }
 
+        private void sprayClassic() {
+            sprayCloud(colors[colorIndex], 24, dp(24), 78, 230, 1f, 0f, 0f);
+            drawDrips(colors[colorIndex], 5, dp(14), 0f, 0f, 0.5f);
+        }
+
+        private void sprayShadow() {
+            int shadowColor = Color.argb(130, 0, 0, 0);
+            sprayCloud(shadowColor, 18, dp(26), 50, 160, 1.05f, dp(10), dp(8));
+            sprayCloud(colors[colorIndex], 20, dp(20), 100, 230, 0.95f, 0f, 0f);
+            drawDrips(shadowColor, 3, dp(10), dp(6), dp(6), 0.35f);
+            drawDrips(colors[colorIndex], 4, dp(12), 0f, 0f, 0.45f);
+        }
+
+        private void spray3D() {
+            int base = colors[colorIndex];
+            int dark = mixWith(Color.BLACK, base, 0.18f);
+            int light = mixWith(Color.WHITE, base, 0.35f);
+            sprayCloud(dark, 20, dp(24), 90, 190, 1.05f, dp(8), dp(8));
+            sprayCloud(base, 22, dp(20), 110, 240, 1f, 0f, 0f);
+            sprayCloud(light, 14, dp(12), 90, 170, 0.8f, -dp(6), -dp(6));
+            drawDrips(dark, 2, dp(10), dp(8), dp(8), 0.35f);
+            drawDrips(base, 3, dp(10), 0f, 0f, 0.3f);
+        }
+
+        private void sprayFatCap() {
+            sprayCloud(colors[colorIndex], 34, dp(34), 95, 235, 1.25f, 0f, 0f);
+            sprayCloud(mixWith(Color.WHITE, colors[colorIndex], 0.18f), 10, dp(16), 60, 130, 0.7f, -dp(3), -dp(3));
+            drawDrips(colors[colorIndex], 7, dp(20), 0f, 0f, 0.75f);
+        }
+
+        private void sprayCloud(int color, int dots, float spread, int alphaMin, int alphaMax, float sizeScale, float dx, float dy) {
+            for (int i = 0; i < dots; i++) {
+                double a = Math.random() * Math.PI * 2.0;
+                float radius = (float)(Math.random() * spread);
+                float px = aimX + dx + (float)Math.cos(a) * radius;
+                float py = aimY + dy + (float)Math.sin(a) * radius;
+                float size = (dp(2) + (float)Math.random() * dp(8)) * sizeScale;
+                int alpha = alphaMin + (int)(Math.random() * Math.max(1, alphaMax - alphaMin + 1));
+                dotPaint.setStyle(Paint.Style.FILL);
+                dotPaint.setStrokeWidth(1f);
+                dotPaint.setColor(color);
+                dotPaint.setAlpha(alpha);
+                strokesCanvas.drawCircle(px, py, size, dotPaint);
+            }
+        }
+
+        private void drawDrips(int color, int count, float maxLen, float dx, float dy, float density) {
+            for (int i = 0; i < count; i++) {
+                float dripLen = dp(4) + (float)Math.random() * maxLen;
+                float px = aimX + dx + ((float)Math.random() - 0.5f) * dp(22) * density;
+                float py = aimY + dy + ((float)Math.random() - 0.5f) * dp(14) * density;
+                dotPaint.setStyle(Paint.Style.STROKE);
+                dotPaint.setColor(color);
+                dotPaint.setAlpha(90 + (int)(Math.random() * 100));
+                dotPaint.setStrokeWidth(dp(2) + (float)Math.random() * dp(5));
+                strokesCanvas.drawLine(px, py, px + ((float)Math.random() - 0.5f) * dp(6), py + dripLen, dotPaint);
+            }
+            dotPaint.setStyle(Paint.Style.FILL);
+        }
+
+        private int mixWith(int target, int base, float amount) {
+            int r = (int)(Color.red(base) * (1f - amount) + Color.red(target) * amount);
+            int g = (int)(Color.green(base) * (1f - amount) + Color.green(target) * amount);
+            int b = (int)(Color.blue(base) * (1f - amount) + Color.blue(target) * amount);
+            return Color.rgb(clamp(r, 0, 255), clamp(g, 0, 255), clamp(b, 0, 255));
+        }
+
+        private float clamp(float v, float min, float max) { return Math.max(min, Math.min(max, v)); }
+        private int clamp(int v, int min, int max) { return Math.max(min, Math.min(max, v)); }
+
         @Override
         public boolean onTouchEvent(MotionEvent event) {
-            aimX = event.getX();
-            aimY = event.getY();
-            invalidate();
+            // En este modo la mira se controla con el móvil; el dedo no desplaza el spray.
             return true;
         }
     }
