@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Camson Mag</title>
+<style>
+:root{--lime:#b6ff35;--pink:#ff4fd8;--cyan:#5ce8ff;--yellow:#ffe45e;--red:#ff3030;--ink:#050509}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050509;color:#fff;font-family:Arial Black,Impact,system-ui,sans-serif}
+#camera,#paint,#fx{position:fixed;inset:0;width:100%;height:100%;object-fit:cover}
+#camera{background:#111}
+#paint,#fx{touch-action:none}
+body:before{content:"";position:fixed;inset:0;z-index:20;pointer-events:none;background:linear-gradient(#ffffff08 50%,#0000001a 50%);background-size:100% 4px;mix-blend-mode:overlay;opacity:.35}
+#hud{position:fixed;inset:0;z-index:30;pointer-events:none;display:flex;flex-direction:column;justify-content:space-between;padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))}
+.top{display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
+.logo{font-size:clamp(34px,12vw,64px);line-height:.82;letter-spacing:-2px;text-shadow:4px 4px #000,-2px 0 var(--pink);text-transform:uppercase}
+.badge{padding:9px 12px;border-radius:999px;background:#000c;border:1px solid #ffffff24;color:var(--lime);font:12px/1 Arial Black,Impact,sans-serif;box-shadow:4px 4px 0 #000}
+.centerCross{position:fixed;left:50%;top:50%;width:70px;height:70px;transform:translate(-50%,-50%);border-radius:50%;border:2px solid #ffffff70;box-shadow:0 0 18px #000,inset 0 0 20px #0008;pointer-events:none}
+.centerCross:before,.centerCross:after{content:"";position:absolute;background:#ffffff9c;left:50%;top:50%;transform:translate(-50%,-50%)}
+.centerCross:before{width:44px;height:2px}.centerCross:after{width:2px;height:44px}
+.nozzle{position:fixed;left:50%;bottom:96px;width:86px;height:86px;transform:translateX(-50%);border-radius:50%;background:radial-gradient(circle,#181818 0 22%,#555 23% 30%,#111 31% 100%);border:4px solid #ffffff22;box-shadow:0 12px 40px #000}
+.nozzle:after{content:"";position:absolute;left:50%;top:50%;width:24px;height:24px;transform:translate(-50%,-50%);border-radius:50%;background:#000;border:3px solid var(--lime)}
+.bottom{pointer-events:auto;display:grid;gap:8px}
+.meterWrap{height:24px;border-radius:999px;background:#000b;border:2px solid #ffffff22;overflow:hidden;box-shadow:4px 4px 0 #000}
+#paintMeter{height:100%;width:100%;background:linear-gradient(90deg,var(--lime),var(--cyan),var(--pink));transition:width .16s}
+.controls{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+button{min-height:50px;border:0;border-radius:14px;padding:9px 8px;font:11px/1 Arial Black,Impact,sans-serif;text-transform:uppercase;color:#111;background:linear-gradient(180deg,var(--lime),#70b71a);box-shadow:4px 4px 0 #000}
+button.pink{background:linear-gradient(180deg,var(--pink),#a22088);color:#fff}
+button.blue{background:linear-gradient(180deg,var(--cyan),#208fc7)}
+button.red{background:linear-gradient(180deg,#ff4141,#8d0000);color:#fff}
+#msg{position:fixed;left:50%;top:23%;transform:translateX(-50%);z-index:35;padding:12px 16px;border-radius:999px;background:#000d;border:2px solid var(--lime);box-shadow:6px 6px #000;font:13px/1 Arial Black,Impact,sans-serif;color:#fff;text-transform:uppercase;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none}
+#msg.show{opacity:1;transform:translateX(-50%) scale(1.03)}
+#fallback{position:fixed;inset:0;z-index:50;display:none;place-items:center;padding:24px;background:#080812;color:#fff;text-align:center;font:15px/1.4 system-ui,sans-serif}
+#fallback b{font-family:Arial Black,Impact,sans-serif;color:var(--lime);font-size:26px;display:block;margin-bottom:12px}
+@media (orientation:landscape){.logo{font-size:clamp(28px,8vw,46px)}.bottom{max-width:520px;margin:0 auto}.nozzle{bottom:72px}}
+</style>
+</head>
+<body>
+<video id="camera" autoplay playsinline muted></video>
+<canvas id="paint"></canvas>
+<canvas id="fx"></canvas>
+<div class="centerCross"></div>
+<div class="nozzle"></div>
+<div id="hud">
+  <div class="top">
+    <div class="logo">CAMSON<br>MAG</div>
+    <div class="badge" id="modeBadge">VOL = SPRAY</div>
+  </div>
+  <div class="bottom">
+    <div class="meterWrap"><div id="paintMeter"></div></div>
+    <div class="controls">
+      <button class="blue" id="saveBtn">Guardar</button>
+      <button id="colorBtn">Color</button>
+      <button class="pink" id="sprayBtn">Spray</button>
+      <button class="red" id="clearBtn">Limpiar</button>
+    </div>
+  </div>
+</div>
+<div id="msg"></div>
+<div id="fallback"><div><b>CAMSON MAG</b>No puedo abrir la cámara todavía. Revisa permisos de cámara o reinstala aceptando el permiso.</div></div>
+<script>
+const video=document.getElementById('camera'),paint=document.getElementById('paint'),fx=document.getElementById('fx');
+const pctx=paint.getContext('2d',{alpha:true}),fctx=fx.getContext('2d',{alpha:true});
+const meter=document.getElementById('paintMeter'),msg=document.getElementById('msg');
+const colors=['#b6ff35','#ff4fd8','#5ce8ff','#ffe45e','#ff3030','#f5eee0','#111111'];
+let colorIndex=0,paintLeft=100,spraying=false,nozzleMode=0,last=performance.now(),lastSprayTime=0,particles=[];
+function resize(){const dpr=Math.min(devicePixelRatio||1,2);for(const c of [paint,fx]){c.width=Math.floor(innerWidth*dpr);c.height=Math.floor(innerHeight*dpr);c.style.width=innerWidth+'px';c.style.height=innerHeight+'px'}pctx.setTransform(dpr,0,0,dpr,0,0);fctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+async function startCamera(){try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});video.srcObject=stream;showMsg('CÁMARA ARMADA')}catch(e){document.getElementById('fallback').style.display='grid';showMsg('SIN CÁMARA')}}
+function showMsg(t){msg.textContent=t;msg.classList.add('show');clearTimeout(showMsg.t);showMsg.t=setTimeout(()=>msg.classList.remove('show'),900)}
+function updateMeter(){meter.style.width=paintLeft+'%';meter.style.background=paintLeft<20?'linear-gradient(90deg,#ff3030,#ffe45e)':`linear-gradient(90deg,${colors[colorIndex]},#5ce8ff,#ff4fd8)`}
+function rand(a,b){return a+Math.random()*(b-a)}
+function sprayAt(x,y,dt){if(paintLeft<=0){stopSpray();showMsg('AGITA PARA RECARGAR');return}const amount=nozzleMode===2?55:nozzleMode===1?34:24;const spread=nozzleMode===2?82:nozzleMode===1?54:34;const base=colors[colorIndex];for(let i=0;i<amount;i++){const a=Math.random()*Math.PI*2,r=Math.pow(Math.random(),.55)*spread,px=x+Math.cos(a)*r,py=y+Math.sin(a)*r,s=rand(1.2,nozzleMode===2?6.5:4.2);pctx.globalAlpha=rand(.05,.35);pctx.fillStyle=base;pctx.beginPath();pctx.arc(px,py,s,0,Math.PI*2);pctx.fill();if(Math.random()<.07){pctx.globalAlpha=rand(.14,.45);pctx.lineWidth=rand(1,3);pctx.strokeStyle=base;pctx.beginPath();pctx.moveTo(px,py);pctx.lineTo(px+rand(-4,4),py+rand(8,26));pctx.stroke()}particles.push({x:px,y:py,vx:rand(-.8,.8),vy:rand(-1.5,.4),life:rand(140,420),age:0,size:s*rand(.8,1.8),color:base})}paintLeft=Math.max(0,paintLeft-dt*(nozzleMode===2?.030:nozzleMode===1?.022:.016));updateMeter()}
+function drawFx(dt){fctx.clearRect(0,0,innerWidth,innerHeight);particles=particles.filter(p=>{p.age+=dt;p.x+=p.vx*dt*.045;p.y+=p.vy*dt*.045;const alpha=Math.max(0,1-p.age/p.life);fctx.globalAlpha=alpha*.42;fctx.fillStyle=p.color;fctx.beginPath();fctx.arc(p.x,p.y,p.size,0,Math.PI*2);fctx.fill();return alpha>0})}
+function loop(t){const dt=Math.min(50,t-last);last=t;if(spraying){const now=performance.now();if(now-lastSprayTime>8){sprayAt(innerWidth/2,innerHeight/2,dt);lastSprayTime=now}}drawFx(dt);requestAnimationFrame(loop)}requestAnimationFrame(loop);
+window.startSpray=function(){if(paintLeft<=0){showMsg('AGITA PARA RECARGAR');return}spraying=true;document.getElementById('modeBadge').textContent='PSSSSHHHH'};
+window.stopSpray=function(){spraying=false;document.getElementById('modeBadge').textContent='VOL = SPRAY'};
+window.reloadCan=function(){paintLeft=100;updateMeter();showMsg('LATA RECARGADA')};
+document.getElementById('sprayBtn').addEventListener('pointerdown',e=>{e.preventDefault();startSpray()});
+document.getElementById('sprayBtn').addEventListener('pointerup',e=>{e.preventDefault();stopSpray()});
+document.getElementById('sprayBtn').addEventListener('pointercancel',stopSpray);
+document.getElementById('colorBtn').addEventListener('click',()=>{colorIndex=(colorIndex+1)%colors.length;updateMeter();showMsg('COLOR '+colors[colorIndex])});
+document.getElementById('clearBtn').addEventListener('click',()=>{pctx.clearRect(0,0,innerWidth,innerHeight);showMsg('LIMPIO')});
+document.getElementById('saveBtn').addEventListener('click',saveImage);
+async function saveImage(){const out=document.createElement('canvas'),dpr=Math.min(devicePixelRatio||1,2);out.width=Math.floor(innerWidth*dpr);out.height=Math.floor(innerHeight*dpr);const o=out.getContext('2d');o.setTransform(dpr,0,0,dpr,0,0);try{const vw=video.videoWidth||innerWidth,vh=video.videoHeight||innerHeight,scale=Math.max(innerWidth/vw,innerHeight/vh),dw=vw*scale,dh=vh*scale,dx=(innerWidth-dw)/2,dy=(innerHeight-dh)/2;o.drawImage(video,dx,dy,dw,dh)}catch(e){o.fillStyle='#080812';o.fillRect(0,0,innerWidth,innerHeight)}o.drawImage(paint,0,0,innerWidth,innerHeight);o.drawImage(fx,0,0,innerWidth,innerHeight);const data=out.toDataURL('image/png'),base64=data.split(',')[1],filename=`camson-mag-${Date.now()}.png`;if(window.CamsonAndroid&&CamsonAndroid.saveBase64)CamsonAndroid.saveBase64(filename,'image/png',base64);else{const a=document.createElement('a');a.href=data;a.download=filename;a.click()}showMsg('CAPTURA GUARDADA')}
+updateMeter();startCamera();
+</script>
+</body>
+</html>
