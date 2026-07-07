@@ -3,9 +3,16 @@ package com.camsonmag.app;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -16,7 +23,9 @@ import android.opengl.GLSurfaceView;
 import android.opengl.Matrix;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Vibrator;
+import android.provider.MediaStore;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -53,15 +62,23 @@ import com.google.ar.core.exceptions.UnavailableUserDeclinedInstallationExceptio
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
 public class MainActivity extends Activity implements SensorEventListener {
     private GLSurfaceView surfaceView;
+    private FrameLayout rootLayout;
+    private View photoOverlay;
+    private PhotoSprayView activePhotoView;
+    private boolean photoModeActive = false;
     private SprayRenderer renderer;
     private Session session;
     private boolean installRequested;
@@ -73,6 +90,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     private TextView crossView;
     private ProgressBar paintMeter;
     private Button colorButton;
+    private Button photoButton;
     private Button sprayButton;
 
     private SensorManager sensorManager;
@@ -99,10 +117,10 @@ public class MainActivity extends Activity implements SensorEventListener {
         surfaceView.setRenderer(renderer);
         surfaceView.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
 
-        FrameLayout root = new FrameLayout(this);
-        root.addView(surfaceView, new FrameLayout.LayoutParams(-1, -1));
-        root.addView(makeHud(), new FrameLayout.LayoutParams(-1, -1));
-        setContentView(root);
+        rootLayout = new FrameLayout(this);
+        rootLayout.addView(surfaceView, new FrameLayout.LayoutParams(-1, -1));
+        rootLayout.addView(makeHud(), new FrameLayout.LayoutParams(-1, -1));
+        setContentView(rootLayout);
 
         installRequested = false;
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
@@ -175,9 +193,11 @@ public class MainActivity extends Activity implements SensorEventListener {
         buttons.setGravity(Gravity.CENTER);
         buttons.setPadding(0, dp(8), 0, 0);
         colorButton = hudButton("COLOR", Color.rgb(182,255,53), Color.BLACK);
+        photoButton = hudButton("FOTO", Color.rgb(92,232,255), Color.BLACK);
         sprayButton = hudButton("SPRAY", Color.rgb(255,79,216), Color.WHITE);
         Button clearButton = hudButton("LIMPIAR", Color.rgb(255,48,48), Color.WHITE);
         buttons.addView(colorButton, new LinearLayout.LayoutParams(0, dp(58), 1));
+        buttons.addView(photoButton, new LinearLayout.LayoutParams(0, dp(58), 1));
         buttons.addView(sprayButton, new LinearLayout.LayoutParams(0, dp(58), 1));
         buttons.addView(clearButton, new LinearLayout.LayoutParams(0, dp(58), 1));
         bottom.addView(buttons, new LinearLayout.LayoutParams(-1, -2));
@@ -187,13 +207,25 @@ public class MainActivity extends Activity implements SensorEventListener {
         hud.addView(bottom, bottomLp);
 
         colorButton.setOnClickListener(v -> {
-            renderer.nextColor();
-            colorButton.setText(renderer.colorName());
+            if (photoModeActive && activePhotoView != null) {
+                activePhotoView.nextColor();
+                colorButton.setText(activePhotoView.colorName());
+                setStatus("Color del spray foto cambiado a " + activePhotoView.colorName() + ".");
+            } else {
+                renderer.nextColor();
+                colorButton.setText(renderer.colorName());
+            }
             vibrate(25);
         });
+        photoButton.setOnClickListener(v -> capturePhotoCanvas());
         clearButton.setOnClickListener(v -> {
-            surfaceView.queueEvent(() -> renderer.clearMarks());
-            setStatus("Pared limpia. La lata borra sus fantasmas.");
+            if (photoModeActive && activePhotoView != null) {
+                activePhotoView.clearPaint();
+                setStatus("Foto limpia. La niebla de pintura desapareció.");
+            } else {
+                surfaceView.queueEvent(() -> renderer.clearMarks());
+                setStatus("Pared limpia. La lata borra sus fantasmas.");
+            }
         });
         sprayButton.setOnTouchListener((v, e) -> {
             if (e.getAction() == MotionEvent.ACTION_DOWN) { startSpray(); return true; }
@@ -202,6 +234,156 @@ public class MainActivity extends Activity implements SensorEventListener {
         });
         setSprayEnabled(false);
         return hud;
+    }
+
+
+    private interface BitmapCallback {
+        void onBitmap(Bitmap bitmap);
+    }
+
+    private void capturePhotoCanvas() {
+        if (renderer == null || surfaceView == null) return;
+        setStatus("Congelando entorno para pintar en modo foto...");
+        modeBadge.setText("FOTO");
+        vibrate(25);
+        surfaceView.queueEvent(() -> renderer.captureFrame(bitmap -> runOnUiThread(() -> showPhotoMode(bitmap))));
+    }
+
+    private void showPhotoMode(Bitmap bitmap) {
+        if (bitmap == null || bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0) {
+            setStatus("No pude congelar la imagen. Inténtalo otra vez.");
+            return;
+        }
+        if (photoOverlay != null && rootLayout != null) rootLayout.removeView(photoOverlay);
+
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(Color.BLACK);
+        PhotoSprayView canvas = new PhotoSprayView(this, bitmap);
+        activePhotoView = canvas;
+        photoModeActive = true;
+        overlay.addView(canvas, new FrameLayout.LayoutParams(-1, -1));
+
+        TextView title = new TextView(this);
+        title.setText("MODO FOTO");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(28);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setShadowLayer(8, 4, 4, Color.BLACK);
+        FrameLayout.LayoutParams titleLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+        titleLp.topMargin = dp(18);
+        titleLp.leftMargin = dp(18);
+        overlay.addView(title, titleLp);
+
+        TextView hint = new TextView(this);
+        hint.setText("Mueve la cruz con el dedo y pulsa volumen o SPRAY para rociar la foto como una lata digital.");
+        hint.setTextColor(Color.WHITE);
+        hint.setTextSize(12);
+        hint.setGravity(Gravity.CENTER);
+        hint.setPadding(dp(10), dp(8), dp(10), dp(8));
+        hint.setBackground(pill(Color.argb(180,0,0,0), Color.argb(80,255,255,255), dp(18)));
+        FrameLayout.LayoutParams hintLp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        hintLp.topMargin = dp(74);
+        hintLp.leftMargin = dp(18);
+        hintLp.rightMargin = dp(18);
+        overlay.addView(hint, hintLp);
+
+        LinearLayout controls = new LinearLayout(this);
+        controls.setOrientation(LinearLayout.HORIZONTAL);
+        controls.setGravity(Gravity.CENTER);
+        controls.setPadding(dp(8), dp(8), dp(8), dp(8));
+        Button save = hudButton("GUARDAR", Color.rgb(182,255,53), Color.BLACK);
+        Button color = hudButton("COLOR", Color.rgb(92,232,255), Color.BLACK);
+        Button spray = hudButton("SPRAY", Color.rgb(255,79,216), Color.WHITE);
+        Button clear = hudButton("LIMPIAR", Color.rgb(255,48,48), Color.WHITE);
+        Button exit = hudButton("SALIR", Color.rgb(20,20,20), Color.WHITE);
+        controls.addView(save, new LinearLayout.LayoutParams(0, dp(58), 1));
+        controls.addView(color, new LinearLayout.LayoutParams(0, dp(58), 1));
+        controls.addView(spray, new LinearLayout.LayoutParams(0, dp(58), 1));
+        controls.addView(clear, new LinearLayout.LayoutParams(0, dp(58), 1));
+        controls.addView(exit, new LinearLayout.LayoutParams(0, dp(58), 1));
+        FrameLayout.LayoutParams controlsLp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+        controlsLp.bottomMargin = dp(10);
+        overlay.addView(controls, controlsLp);
+
+        save.setOnClickListener(v -> {
+            try {
+                Bitmap out = canvas.exportBitmap();
+                saveBitmapToDownloads(out, "camson-mag-foto-" + System.currentTimeMillis() + ".png");
+                setStatus("Foto pintada guardada en Descargas/CamsonMag.");
+                vibrate(50);
+            } catch (Exception e) {
+                setStatus("Error guardando foto: " + e.getMessage());
+            }
+        });
+        color.setOnClickListener(v -> {
+            canvas.nextColor();
+            color.setText(canvas.colorName());
+            vibrate(20);
+        });
+        spray.setOnTouchListener((v, e) -> {
+            if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                startSpray();
+                return true;
+            }
+            if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) {
+                stopSpray();
+                return true;
+            }
+            return true;
+        });
+        clear.setOnClickListener(v -> {
+            canvas.clearPaint();
+            setStatus("Pintura de la foto limpiada.");
+        });
+        exit.setOnClickListener(v -> closePhotoMode());
+
+        photoOverlay = overlay;
+        rootLayout.addView(photoOverlay, new FrameLayout.LayoutParams(-1, -1));
+        colorButton.setText(canvas.colorName());
+        updatePaint(canvas.paintPercent());
+        setStatus("Modo foto activo. Mueve la mira con el dedo y pulsa volumen o SPRAY para pintar la foto.");
+    }
+
+    private void closePhotoMode() {
+        if (activePhotoView != null) activePhotoView.setSpraying(false);
+        if (photoOverlay != null && rootLayout != null) {
+            rootLayout.removeView(photoOverlay);
+            photoOverlay = null;
+        }
+        activePhotoView = null;
+        photoModeActive = false;
+        colorButton.setText(renderer.colorName());
+        updatePaint(100);
+        modeBadge.setText(renderer != null && renderer.isMappingReady() ? "VOL = SPRAY" : "MAPEANDO");
+        setStatus("Has vuelto al modo AR. Usa FOTO cuando quieras congelar la escena y pintar sin tracking.");
+    }
+
+    private void saveBitmapToDownloads(Bitmap bitmap, String filename) throws Exception {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContentResolver resolver = getContentResolver();
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
+            values.put(MediaStore.MediaColumns.MIME_TYPE, "image/png");
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/CamsonMag");
+            values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+            Uri uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) throw new Exception("No se pudo crear archivo");
+            OutputStream out = resolver.openOutputStream(uri);
+            if (out != null) {
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+                out.close();
+            }
+            values.clear();
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0);
+            resolver.update(uri, values, null, null);
+        } else {
+            File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "CamsonMag");
+            if (!dir.exists()) dir.mkdirs();
+            File file = new File(dir, filename);
+            FileOutputStream out = new FileOutputStream(file);
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+            out.close();
+        }
     }
 
     private Button hudButton(String text, int color, int textColor) {
@@ -322,6 +504,13 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
 
     private void startSpray() {
+        if (photoModeActive && activePhotoView != null) {
+            activePhotoView.setSpraying(true);
+            modeBadge.setText("FOTO SPRAY");
+            setStatus("Spray activo sobre la foto. Mueve la mira con el dedo si quieres apuntar a otro sitio.");
+            vibrate(18);
+            return;
+        }
         if (!renderer.isMappingReady()) {
             renderer.setSpraying(false);
             setStatus(renderer.mappingHint());
@@ -335,6 +524,11 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
 
     private void stopSpray() {
+        if (photoModeActive && activePhotoView != null) {
+            activePhotoView.setSpraying(false);
+            modeBadge.setText("FOTO");
+            return;
+        }
         renderer.setSpraying(false);
         modeBadge.setText(renderer.isMappingReady() ? "VOL = SPRAY" : "MAPEANDO");
     }
@@ -375,6 +569,13 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
 
     private void reloadCan() {
+        if (photoModeActive && activePhotoView != null) {
+            activePhotoView.reloadCan();
+            updatePaint(activePhotoView.paintPercent());
+            setStatus("LATA RECARGADA. En modo foto ya puedes seguir rociando la imagen.");
+            vibrate(90);
+            return;
+        }
         renderer.reloadCan();
         updatePaint(100);
         if (renderer.isMappingReady()) {
@@ -423,6 +624,177 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
     @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
 
+
+    private class PhotoSprayView extends View {
+        private final Bitmap baseBitmap;
+        private Bitmap strokesBitmap;
+        private Canvas strokesCanvas;
+        private final Paint imagePaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        private final Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint crossPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF dest = new RectF();
+        private int colorIndex = 0;
+        private float aimX = -1f, aimY = -1f;
+        private boolean spraying = false;
+        private float paintLeft = 100f;
+        private final int[] colors = new int[] {
+                Color.rgb(182,255,53),
+                Color.rgb(255,79,216),
+                Color.rgb(92,232,255),
+                Color.rgb(255,228,94),
+                Color.rgb(255,48,48),
+                Color.rgb(245,238,224),
+                Color.rgb(20,20,20)
+        };
+        private final String[] colorNames = new String[] {
+                "LIMA", "MAGENTA", "CYAN", "AMARILLO", "ROJO", "BLANCO", "NEGRO"
+        };
+
+        private final Runnable sprayLoop = new Runnable() {
+            @Override
+            public void run() {
+                if (!spraying) return;
+                if (paintLeft <= 0f) {
+                    spraying = false;
+                    setStatus("Lata vacía en modo foto. Agita el móvil para recargar.");
+                    return;
+                }
+                sprayBurst();
+                invalidate();
+                postDelayed(this, 36);
+            }
+        };
+
+        PhotoSprayView(Context context, Bitmap bitmap) {
+            super(context);
+            baseBitmap = bitmap;
+            dotPaint.setStyle(Paint.Style.FILL);
+            dotPaint.setColor(colors[colorIndex]);
+            crossPaint.setStyle(Paint.Style.STROKE);
+            crossPaint.setStrokeWidth(dp(2));
+            crossPaint.setColor(Color.WHITE);
+            setBackgroundColor(Color.BLACK);
+        }
+
+        void setSpraying(boolean value) {
+            if (value == spraying) return;
+            spraying = value;
+            removeCallbacks(sprayLoop);
+            if (spraying) {
+                post(sprayLoop);
+            }
+        }
+
+        void reloadCan() {
+            paintLeft = 100f;
+            updatePaint(100);
+        }
+
+        int paintPercent() {
+            return Math.max(0, Math.min(100, Math.round(paintLeft)));
+        }
+
+        void nextColor() {
+            colorIndex = (colorIndex + 1) % colors.length;
+            dotPaint.setColor(colors[colorIndex]);
+            invalidate();
+        }
+
+        String colorName() {
+            return colorNames[colorIndex];
+        }
+
+        void clearPaint() {
+            if (strokesBitmap != null) {
+                strokesBitmap.eraseColor(Color.TRANSPARENT);
+                invalidate();
+            }
+        }
+
+        Bitmap exportBitmap() {
+            Bitmap out = Bitmap.createBitmap(Math.max(1, getWidth()), Math.max(1, getHeight()), Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(out);
+            draw(c);
+            return out;
+        }
+
+        @Override
+        protected void onDetachedFromWindow() {
+            super.onDetachedFromWindow();
+            removeCallbacks(sprayLoop);
+            spraying = false;
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            super.onSizeChanged(w, h, oldw, oldh);
+            if (w > 0 && h > 0) {
+                strokesBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                strokesCanvas = new Canvas(strokesBitmap);
+                if (aimX < 0 || aimY < 0) {
+                    aimX = w * 0.5f;
+                    aimY = h * 0.5f;
+                }
+            }
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            dest.set(0, 0, getWidth(), getHeight());
+            canvas.drawBitmap(baseBitmap, null, dest, imagePaint);
+            if (strokesBitmap != null) canvas.drawBitmap(strokesBitmap, 0, 0, null);
+            drawCrosshair(canvas);
+        }
+
+        private void drawCrosshair(Canvas canvas) {
+            if (aimX < 0 || aimY < 0) return;
+            crossPaint.setColor(Color.argb(210, 255, 255, 255));
+            float r = dp(18);
+            canvas.drawCircle(aimX, aimY, r, crossPaint);
+            canvas.drawLine(aimX - r - dp(10), aimY, aimX - dp(4), aimY, crossPaint);
+            canvas.drawLine(aimX + dp(4), aimY, aimX + r + dp(10), aimY, crossPaint);
+            canvas.drawLine(aimX, aimY - r - dp(10), aimX, aimY - dp(4), crossPaint);
+            canvas.drawLine(aimX, aimY + dp(4), aimX, aimY + r + dp(10), crossPaint);
+        }
+
+        private void sprayBurst() {
+            if (strokesCanvas == null) return;
+            int dots = 20;
+            float spread = dp(28);
+            for (int i = 0; i < dots; i++) {
+                double a = Math.random() * Math.PI * 2.0;
+                float radius = (float)(Math.random() * spread);
+                float px = aimX + (float)Math.cos(a) * radius;
+                float py = aimY + (float)Math.sin(a) * radius;
+                float size = dp(2) + (float)Math.random() * dp(8);
+                int alpha = 80 + (int)(Math.random() * 140);
+                dotPaint.setColor(colors[colorIndex]);
+                dotPaint.setAlpha(alpha);
+                strokesCanvas.drawCircle(px, py, size, dotPaint);
+            }
+            for (int i = 0; i < 6; i++) {
+                float dripLen = dp(4) + (float)Math.random() * dp(18);
+                float px = aimX + ((float)Math.random() - 0.5f) * spread * 0.4f;
+                float py = aimY + ((float)Math.random() - 0.5f) * spread * 0.4f;
+                dotPaint.setColor(colors[colorIndex]);
+                dotPaint.setAlpha(90 + (int)(Math.random() * 80));
+                dotPaint.setStrokeWidth(dp(2) + (float)Math.random() * dp(4));
+                strokesCanvas.drawLine(px, py, px + ((float)Math.random() - 0.5f) * dp(4), py + dripLen, dotPaint);
+            }
+            paintLeft = Math.max(0f, paintLeft - 0.55f);
+            updatePaint(paintPercent());
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            aimX = event.getX();
+            aimY = event.getY();
+            invalidate();
+            return true;
+        }
+    }
+
     private class SprayRenderer implements GLSurfaceView.Renderer {
         private final Activity activity;
         private Session arSession;
@@ -437,6 +809,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         private float paintLeft = 100f;
         private long lastSprayMs = 0;
         private int colorIndex = 0;
+        private BitmapCallback captureCallback = null;
         private final int[] colors = new int[] {
                 Color.rgb(182,255,53), Color.rgb(255,79,216), Color.rgb(92,232,255),
                 Color.rgb(255,228,94), Color.rgb(255,48,48), Color.rgb(245,238,224), Color.rgb(20,20,20)
@@ -471,6 +844,10 @@ public class MainActivity extends Activity implements SensorEventListener {
             marks.clear();
         }
 
+        void captureFrame(BitmapCallback callback) {
+            captureCallback = callback;
+        }
+
         @Override public void onSurfaceCreated(GL10 gl, EGLConfig config) {
             GLES20.glClearColor(0,0,0,1);
             background.createOnGlThread();
@@ -494,6 +871,7 @@ public class MainActivity extends Activity implements SensorEventListener {
                     mappingReady = false;
                     stableFrames = 0;
                     pushMappingUi(5, false, "Mapeando entorno... mueve el móvil despacio para que AR encuentre pared o suelo.");
+                    deliverCaptureIfRequested();
                     return;
                 }
                 camera.getViewMatrix(viewMatrix, 0);
@@ -511,6 +889,7 @@ public class MainActivity extends Activity implements SensorEventListener {
                 }
                 GLES20.glDepthMask(true);
                 GLES20.glDisable(GLES20.GL_BLEND);
+                deliverCaptureIfRequested();
             } catch (Throwable t) {
                 setStatus("AR se ha quejado: " + t.getMessage());
             }
@@ -586,6 +965,37 @@ public class MainActivity extends Activity implements SensorEventListener {
             lastUiReady = ready;
             lastUiUpdate = now;
             updateMappingUi(percent, ready, message);
+        }
+
+
+        private void deliverCaptureIfRequested() {
+            BitmapCallback callback = captureCallback;
+            if (callback == null) return;
+            captureCallback = null;
+            try {
+                callback.onBitmap(readCurrentFrameBitmap());
+            } catch (Throwable t) {
+                callback.onBitmap(null);
+            }
+        }
+
+        private Bitmap readCurrentFrameBitmap() {
+            int w = Math.max(1, viewportWidth);
+            int h = Math.max(1, viewportHeight);
+            IntBuffer buffer = IntBuffer.allocate(w * h);
+            GLES20.glReadPixels(0, 0, w, h, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buffer);
+            int[] src = buffer.array();
+            int[] dst = new int[w * h];
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    int pix = src[y * w + x];
+                    int blue = (pix >> 16) & 0xff;
+                    int red = (pix << 16) & 0x00ff0000;
+                    int fixed = (pix & 0xff00ff00) | red | blue;
+                    dst[(h - y - 1) * w + x] = fixed;
+                }
+            }
+            return Bitmap.createBitmap(dst, w, h, Bitmap.Config.ARGB_8888);
         }
 
         private void maybeSpray(Frame frame) {
