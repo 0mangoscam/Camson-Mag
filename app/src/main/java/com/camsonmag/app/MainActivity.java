@@ -38,7 +38,6 @@ import com.google.ar.core.Camera;
 import com.google.ar.core.Config;
 import com.google.ar.core.Frame;
 import com.google.ar.core.HitResult;
-import com.google.ar.core.InstantPlacementPoint;
 import com.google.ar.core.Plane;
 import com.google.ar.core.Point;
 import com.google.ar.core.Session;
@@ -71,8 +70,10 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private TextView statusText;
     private TextView modeBadge;
+    private TextView crossView;
     private ProgressBar paintMeter;
     private Button colorButton;
+    private Button sprayButton;
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
@@ -125,7 +126,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         hud.addView(logo, logoLp);
 
         modeBadge = new TextView(this);
-        modeBadge.setText("AR = SPRAY");
+        modeBadge.setText("MAPEANDO");
         modeBadge.setTextColor(Color.rgb(182,255,53));
         modeBadge.setTextSize(14);
         modeBadge.setTypeface(Typeface.DEFAULT_BOLD);
@@ -137,17 +138,17 @@ public class MainActivity extends Activity implements SensorEventListener {
         badgeLp.rightMargin = dp(8);
         hud.addView(modeBadge, badgeLp);
 
-        TextView cross = new TextView(this);
-        cross.setText("+");
-        cross.setTextColor(Color.argb(210,255,255,255));
-        cross.setTextSize(50);
-        cross.setGravity(Gravity.CENTER);
-        cross.setBackground(pill(Color.argb(60,0,0,0), Color.argb(120,255,255,255), dp(44)));
+        crossView = new TextView(this);
+        crossView.setText("+");
+        crossView.setTextColor(Color.argb(210,255,255,255));
+        crossView.setTextSize(50);
+        crossView.setGravity(Gravity.CENTER);
+        crossView.setBackground(pill(Color.argb(60,0,0,0), Color.argb(120,255,255,255), dp(44)));
         FrameLayout.LayoutParams crossLp = new FrameLayout.LayoutParams(dp(86), dp(86), Gravity.CENTER);
-        hud.addView(cross, crossLp);
+        hud.addView(crossView, crossLp);
 
         statusText = new TextView(this);
-        statusText.setText("Mueve el móvil hasta detectar una pared o suelo. Volumen = pintar.");
+        statusText.setText("Mapeando entorno... mueve el móvil despacio y apunta a pared o suelo.");
         statusText.setTextColor(Color.WHITE);
         statusText.setTextSize(12);
         statusText.setGravity(Gravity.CENTER);
@@ -174,7 +175,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         buttons.setGravity(Gravity.CENTER);
         buttons.setPadding(0, dp(8), 0, 0);
         colorButton = hudButton("COLOR", Color.rgb(182,255,53), Color.BLACK);
-        Button sprayButton = hudButton("SPRAY", Color.rgb(255,79,216), Color.WHITE);
+        sprayButton = hudButton("SPRAY", Color.rgb(255,79,216), Color.WHITE);
         Button clearButton = hudButton("LIMPIAR", Color.rgb(255,48,48), Color.WHITE);
         buttons.addView(colorButton, new LinearLayout.LayoutParams(0, dp(58), 1));
         buttons.addView(sprayButton, new LinearLayout.LayoutParams(0, dp(58), 1));
@@ -199,6 +200,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) { stopSpray(); return true; }
             return true;
         });
+        setSprayEnabled(false);
         return hud;
     }
 
@@ -243,9 +245,11 @@ public class MainActivity extends Activity implements SensorEventListener {
                 config.setPlaneFindingMode(Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL);
                 config.setUpdateMode(Config.UpdateMode.LATEST_CAMERA_IMAGE);
                 config.setFocusMode(Config.FocusMode.AUTO);
-                config.setInstantPlacementMode(Config.InstantPlacementMode.LOCAL_Y_UP);
                 if (session.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
                     config.setDepthMode(Config.DepthMode.AUTOMATIC);
+                    renderer.setDepthSupported(true);
+                } else {
+                    renderer.setDepthSupported(false);
                 }
                 session.configure(config);
                 shouldConfigureSession = true;
@@ -318,6 +322,13 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
 
     private void startSpray() {
+        if (!renderer.isMappingReady()) {
+            renderer.setSpraying(false);
+            setStatus(renderer.mappingHint());
+            modeBadge.setText("MAPEANDO");
+            vibrate(18);
+            return;
+        }
         renderer.setSpraying(true);
         modeBadge.setText("PSSSSHHH");
         vibrate(18);
@@ -325,7 +336,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private void stopSpray() {
         renderer.setSpraying(false);
-        modeBadge.setText("VOL = SPRAY");
+        modeBadge.setText(renderer.isMappingReady() ? "VOL = SPRAY" : "MAPEANDO");
     }
 
     private void setStatus(String text) {
@@ -336,10 +347,41 @@ public class MainActivity extends Activity implements SensorEventListener {
         runOnUiThread(() -> paintMeter.setProgress(progress));
     }
 
+    private void setSprayEnabled(boolean enabled) {
+        runOnUiThread(() -> {
+            if (sprayButton != null) {
+                sprayButton.setEnabled(enabled);
+                sprayButton.setAlpha(enabled ? 1f : 0.55f);
+                sprayButton.setText(enabled ? "SPRAY" : "SCAN");
+            }
+        });
+    }
+
+    private void updateMappingUi(int percent, boolean ready, String message) {
+        runOnUiThread(() -> {
+            statusText.setText(message);
+            if (ready) {
+                modeBadge.setText("VOL = SPRAY");
+                if (crossView != null) crossView.setTextColor(Color.rgb(182,255,53));
+                setSprayEnabled(true);
+            } else {
+                modeBadge.setText("MAP " + percent + "%");
+                if (crossView != null) {
+                    crossView.setTextColor(percent >= 70 ? Color.rgb(255,228,94) : Color.argb(210,255,255,255));
+                }
+                setSprayEnabled(false);
+            }
+        });
+    }
+
     private void reloadCan() {
         renderer.reloadCan();
         updatePaint(100);
-        setStatus("LATA RECARGADA. Busca una pared y dispara.");
+        if (renderer.isMappingReady()) {
+            setStatus("LATA RECARGADA. Listo para pintar.");
+        } else {
+            setStatus("LATA RECARGADA. Sigue mapeando el entorno.");
+        }
         vibrate(90);
     }
 
@@ -401,8 +443,19 @@ public class MainActivity extends Activity implements SensorEventListener {
         };
         private final String[] colorNames = new String[] { "LIMA", "MAGENTA", "CYAN", "AMARILLO", "ROJO", "BLANCO", "NEGRO" };
 
+        private boolean depthSupported = false;
+        private volatile boolean mappingReady = false;
+        private int stableFrames = 0;
+        private int lastUiPercent = -1;
+        private boolean lastUiReady = false;
+        private long lastUiUpdate = 0;
+        private volatile String mappingHint = "Mapeando entorno...";
+
         SprayRenderer(Activity activity) { this.activity = activity; }
         void setSession(Session session) { this.arSession = session; }
+        void setDepthSupported(boolean supported) { depthSupported = supported; }
+        boolean isMappingReady() { return mappingReady; }
+        String mappingHint() { return mappingHint; }
         void setSpraying(boolean b) { spraying = b; }
         void reloadCan() { paintLeft = 100f; updatePaint(100); }
         void nextColor() { colorIndex = (colorIndex + 1) % colors.length; }
@@ -438,13 +491,16 @@ public class MainActivity extends Activity implements SensorEventListener {
                 background.draw(frame);
                 Camera camera = frame.getCamera();
                 if (camera.getTrackingState() != TrackingState.TRACKING) {
-                    setStatus("Mueve el móvil despacio para que AR encuentre pared o suelo.");
+                    mappingReady = false;
+                    stableFrames = 0;
+                    pushMappingUi(5, false, "Mapeando entorno... mueve el móvil despacio para que AR encuentre pared o suelo.");
                     return;
                 }
                 camera.getViewMatrix(viewMatrix, 0);
                 camera.getProjectionMatrix(projectionMatrix, 0, 0.1f, 100.0f);
                 Matrix.multiplyMM(viewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0);
-                if (spraying) maybeSpray(frame);
+                updateMapping(frame, camera);
+                if (spraying && mappingReady) maybeSpray(frame);
                 GLES20.glEnable(GLES20.GL_BLEND);
                 GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
                 GLES20.glDepthMask(false);
@@ -458,6 +514,78 @@ public class MainActivity extends Activity implements SensorEventListener {
             } catch (Throwable t) {
                 setStatus("AR se ha quejado: " + t.getMessage());
             }
+        }
+
+        private void updateMapping(Frame frame, Camera camera) {
+            int trackedPlanes = 0;
+            int trackedVerticalPlanes = 0;
+            int trackedHorizontalPlanes = 0;
+
+            for (Plane plane : arSession.getAllTrackables(Plane.class)) {
+                if (plane.getTrackingState() != TrackingState.TRACKING) continue;
+                if (plane.getSubsumedBy() != null) continue;
+                trackedPlanes++;
+                if (plane.getType() == Plane.Type.VERTICAL) trackedVerticalPlanes++;
+                else if (plane.getType() == Plane.Type.HORIZONTAL_UPWARD_FACING
+                        || plane.getType() == Plane.Type.HORIZONTAL_DOWNWARD_FACING) trackedHorizontalPlanes++;
+            }
+
+            HitResult centerHit = findWorldHit(frame);
+            boolean hasCenterHit = centerHit != null;
+            boolean centerIsVerticalPlane = false;
+            if (centerHit != null && centerHit.getTrackable() instanceof Plane) {
+                Plane p = (Plane) centerHit.getTrackable();
+                centerIsVerticalPlane = p.getType() == Plane.Type.VERTICAL;
+            }
+
+            boolean stableNow = hasCenterHit || trackedPlanes > 0;
+            if (stableNow) stableFrames = Math.min(120, stableFrames + 1);
+            else stableFrames = Math.max(0, stableFrames - 2);
+
+            int score = 0;
+            if (camera.getTrackingState() == TrackingState.TRACKING) score += 20;
+            if (trackedPlanes > 0) score += 20;
+            if (trackedHorizontalPlanes > 0) score += 10;
+            if (trackedVerticalPlanes > 0) score += 20;
+            if (hasCenterHit) score += 20;
+            if (centerIsVerticalPlane) score += 10;
+            if (depthSupported) score += 10;
+
+            int percent = Math.min(100, score);
+            if (stableFrames >= 8) percent = Math.min(100, percent + 8);
+            if (stableFrames >= 14) percent = Math.min(100, percent + 8);
+            if (stableFrames >= 18) percent = Math.min(100, percent + 8);
+
+            mappingReady = trackedPlanes > 0
+                    && hasCenterHit
+                    && stableFrames >= 18
+                    && (trackedVerticalPlanes > 0 || centerIsVerticalPlane || trackedHorizontalPlanes > 0);
+
+            if (mappingReady) {
+                percent = 100;
+                mappingHint = "Listo para pintar. Apunta y pulsa volumen o SPRAY.";
+            } else if (trackedPlanes == 0) {
+                mappingHint = "Mapeando entorno... mueve el móvil lento y apunta a pared o suelo con textura.";
+            } else if (trackedVerticalPlanes == 0 && trackedHorizontalPlanes > 0) {
+                mappingHint = "Suelo detectado. Para graffiti mejor apunta a una pared con textura.";
+            } else if (!hasCenterHit) {
+                mappingHint = "Superficie detectada. Coloca la cruz sobre pared o suelo para fijar el punto de pintura.";
+            } else if (stableFrames < 18) {
+                mappingHint = "Fijando superficie... mantén la mira estable un instante.";
+            } else {
+                mappingHint = "Mapeando...";
+            }
+
+            pushMappingUi(percent, mappingReady, mappingHint);
+        }
+
+        private void pushMappingUi(int percent, boolean ready, String message) {
+            long now = System.currentTimeMillis();
+            if (percent == lastUiPercent && ready == lastUiReady && now - lastUiUpdate < 220) return;
+            lastUiPercent = percent;
+            lastUiReady = ready;
+            lastUiUpdate = now;
+            updateMappingUi(percent, ready, message);
         }
 
         private void maybeSpray(Frame frame) {
@@ -480,12 +608,7 @@ public class MainActivity extends Activity implements SensorEventListener {
                 }
                 paintLeft = Math.max(0f, paintLeft - 0.65f);
                 updatePaint((int) paintLeft);
-                Trackable t = bestHit.getTrackable();
-                if (t instanceof InstantPlacementPoint) {
-                    setStatus("Pintura colocada provisionalmente. Sigue moviendo el móvil para que AR la fije mejor.");
-                } else {
-                    setStatus("Pintura anclada al mundo. Mueve el móvil: debería quedarse ahí.");
-                }
+                setStatus("Pintura anclada al mundo. Mueve el móvil: debería quedarse ahí.");
                 return;
             }
             setStatus("Aún no tengo superficie. Muévete lento en forma de 8 y apunta a una pared con textura.");
@@ -493,23 +616,34 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         private HitResult findWorldHit(Frame frame) {
             List<HitResult> hits = frame.hitTest(viewportWidth / 2f, viewportHeight / 2f);
+            HitResult verticalPlaneHit = null;
+            HitResult anyPlaneHit = null;
+            HitResult pointHit = null;
+
             for (HitResult hit : hits) {
                 Trackable trackable = hit.getTrackable();
-                boolean goodPlane = trackable instanceof Plane
-                        && trackable.getTrackingState() == TrackingState.TRACKING
-                        && ((Plane) trackable).isPoseInPolygon(hit.getHitPose());
-                boolean goodPoint = trackable instanceof Point
-                        && trackable.getTrackingState() == TrackingState.TRACKING
-                        && ((Point) trackable).getOrientationMode() == Point.OrientationMode.ESTIMATED_SURFACE_NORMAL;
-                if (goodPlane || goodPoint) return hit;
-            }
-            try {
-                List<HitResult> instantHits = frame.hitTestInstantPlacement(viewportWidth / 2f, viewportHeight / 2f, 1.35f);
-                for (HitResult hit : instantHits) {
-                    if (hit.getTrackable() instanceof InstantPlacementPoint) return hit;
+
+                if (trackable instanceof Plane) {
+                    Plane plane = (Plane) trackable;
+                    if (plane.getTrackingState() != TrackingState.TRACKING) continue;
+                    if (!plane.isPoseInPolygon(hit.getHitPose())) continue;
+                    if (plane.getType() == Plane.Type.VERTICAL) {
+                        verticalPlaneHit = hit;
+                        break;
+                    }
+                    if (anyPlaneHit == null) anyPlaneHit = hit;
+                } else if (trackable instanceof Point) {
+                    Point point = (Point) trackable;
+                    if (point.getTrackingState() != TrackingState.TRACKING) continue;
+                    if (point.getOrientationMode() == Point.OrientationMode.ESTIMATED_SURFACE_NORMAL && pointHit == null) {
+                        pointHit = hit;
+                    }
                 }
-            } catch (Throwable ignored) {}
-            return null;
+            }
+
+            if (verticalPlaneHit != null) return verticalPlaneHit;
+            if (anyPlaneHit != null) return anyPlaneHit;
+            return pointHit;
         }
     }
 
