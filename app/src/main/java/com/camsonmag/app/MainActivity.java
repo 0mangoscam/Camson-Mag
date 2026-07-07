@@ -289,7 +289,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         overlay.addView(title, titleLp);
 
         TextView hint = new TextView(this);
-        hint.setText("Apunta moviendo el móvil como si fuera una lata. Usa TIPO para cambiar de boquilla y pulsa volumen o SPRAY.");
+        hint.setText("Al entrar la mira se queda centrada. Mueve el móvil suavemente para apuntar y usa TIPO para cambiar boquilla.");
         hint.setTextColor(Color.WHITE);
         hint.setTextSize(12);
         hint.setGravity(Gravity.CENTER);
@@ -435,6 +435,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
 
     private int dp(int v) { return (int)(v * getResources().getDisplayMetrics().density + .5f); }
+    private float dp(float v) { return v * getResources().getDisplayMetrics().density; }
 
     @Override
     protected void onResume() {
@@ -536,7 +537,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         if (photoModeActive && activePhotoView != null) {
             activePhotoView.setSpraying(true);
             modeBadge.setText("FOTO SPRAY");
-            setStatus("Spray activo sobre la foto. Apunta moviendo el móvil como una lata digital.");
+            setStatus("Spray activo. El centro se calibró al entrar en modo foto; mueve el móvil suave para apuntar.");
             vibrate(18);
             return;
         }
@@ -671,6 +672,8 @@ public class MainActivity extends Activity implements SensorEventListener {
         private boolean spraying = false;
         private float paintLeft = 100f;
         private float smoothTiltX = 0f, smoothTiltY = 0f;
+        private boolean tiltCalibrated = false;
+        private float baseTiltX = 0f, baseTiltY = 0f;
         private int sprayStyleIndex = 0;
         private final int[] colors = new int[] {
                 Color.rgb(182,255,53),
@@ -769,14 +772,35 @@ public class MainActivity extends Activity implements SensorEventListener {
                 case 3: tx = -y; ty = -x; break;    // landscape 270
                 default: tx = -x; ty = y; break;    // portrait
             }
-            smoothTiltX = smoothTiltX * 0.86f + tx * 0.14f;
-            smoothTiltY = smoothTiltY * 0.86f + ty * 0.14f;
-            float nx = clamp(smoothTiltX / 5.8f, -1f, 1f);
-            float ny = clamp(smoothTiltY / 5.8f, -1f, 1f);
-            aimX = getWidth() * (0.5f + nx * 0.33f);
-            aimY = getHeight() * (0.5f + ny * 0.33f);
-            aimX = clamp(aimX, dp(18), getWidth() - dp(18));
-            aimY = clamp(aimY, dp(18), getHeight() - dp(18));
+
+            // Calibración: la posición exacta del móvil al entrar en modo foto es el centro.
+            // Así la mira no cae al fondo por la gravedad del acelerómetro.
+            if (!tiltCalibrated) {
+                baseTiltX = tx;
+                baseTiltY = ty;
+                smoothTiltX = 0f;
+                smoothTiltY = 0f;
+                tiltCalibrated = true;
+                aimX = getWidth() * 0.5f;
+                aimY = getHeight() * 0.5f;
+                postInvalidateOnAnimation();
+                return;
+            }
+
+            float relX = tx - baseTiltX;
+            float relY = ty - baseTiltY;
+
+            // Filtro más lento para evitar temblores. Más lata, menos puntero nervioso.
+            smoothTiltX = smoothTiltX * 0.90f + relX * 0.10f;
+            smoothTiltY = smoothTiltY * 0.90f + relY * 0.10f;
+
+            float nx = clamp(smoothTiltX / 3.9f, -1f, 1f);
+            float ny = clamp(smoothTiltY / 3.9f, -1f, 1f);
+
+            aimX = getWidth() * (0.5f + nx * 0.36f);
+            aimY = getHeight() * (0.5f + ny * 0.36f);
+            aimX = clamp(aimX, dp(24), getWidth() - dp(24));
+            aimY = clamp(aimY, dp(24), getHeight() - dp(24));
             postInvalidateOnAnimation();
         }
 
@@ -839,45 +863,70 @@ public class MainActivity extends Activity implements SensorEventListener {
         }
 
         private void sprayClassic() {
-            sprayCloud(colors[colorIndex], 24, dp(24), 78, 230, 1f, 0f, 0f);
-            drawDrips(colors[colorIndex], 5, dp(14), 0f, 0f, 0.5f);
+            sprayCore(colors[colorIndex], dp(11), 105, 220, 0f, 0f, 1.0f);
+            sprayMist(colors[colorIndex], 14, dp(17), 38, 115, 0f, 0f, 0.65f);
+            drawDrips(colors[colorIndex], 2, dp(8), 0f, 0f, 0.35f);
         }
 
         private void sprayShadow() {
-            int shadowColor = Color.argb(130, 0, 0, 0);
-            sprayCloud(shadowColor, 18, dp(26), 50, 160, 1.05f, dp(10), dp(8));
-            sprayCloud(colors[colorIndex], 20, dp(20), 100, 230, 0.95f, 0f, 0f);
-            drawDrips(shadowColor, 3, dp(10), dp(6), dp(6), 0.35f);
-            drawDrips(colors[colorIndex], 4, dp(12), 0f, 0f, 0.45f);
+            int shadowColor = Color.argb(145, 0, 0, 0);
+            sprayCore(shadowColor, dp(13), 70, 150, dp(7), dp(6), 1.06f);
+            sprayMist(shadowColor, 9, dp(18), 28, 90, dp(7), dp(6), 0.55f);
+            sprayCore(colors[colorIndex], dp(10), 115, 235, 0f, 0f, 0.96f);
+            sprayMist(colors[colorIndex], 10, dp(14), 45, 120, 0f, 0f, 0.50f);
+            drawDrips(shadowColor, 1, dp(8), dp(5), dp(5), 0.25f);
+            drawDrips(colors[colorIndex], 2, dp(9), 0f, 0f, 0.30f);
         }
 
         private void spray3D() {
             int base = colors[colorIndex];
-            int dark = mixWith(Color.BLACK, base, 0.18f);
-            int light = mixWith(Color.WHITE, base, 0.35f);
-            sprayCloud(dark, 20, dp(24), 90, 190, 1.05f, dp(8), dp(8));
-            sprayCloud(base, 22, dp(20), 110, 240, 1f, 0f, 0f);
-            sprayCloud(light, 14, dp(12), 90, 170, 0.8f, -dp(6), -dp(6));
-            drawDrips(dark, 2, dp(10), dp(8), dp(8), 0.35f);
-            drawDrips(base, 3, dp(10), 0f, 0f, 0.3f);
+            int dark = mixWith(Color.BLACK, base, 0.24f);
+            int light = mixWith(Color.WHITE, base, 0.42f);
+            sprayCore(dark, dp(15), 95, 185, dp(8), dp(8), 1.08f);
+            sprayCore(base, dp(12), 125, 245, 0f, 0f, 1.0f);
+            sprayCore(light, dp(6), 115, 190, -dp(5), -dp(5), 0.62f);
+            sprayMist(base, 8, dp(13), 35, 100, 0f, 0f, 0.42f);
+            drawDrips(dark, 1, dp(8), dp(7), dp(7), 0.22f);
         }
 
         private void sprayFatCap() {
-            sprayCloud(colors[colorIndex], 34, dp(34), 95, 235, 1.25f, 0f, 0f);
-            sprayCloud(mixWith(Color.WHITE, colors[colorIndex], 0.18f), 10, dp(16), 60, 130, 0.7f, -dp(3), -dp(3));
-            drawDrips(colors[colorIndex], 7, dp(20), 0f, 0f, 0.75f);
+            sprayCore(colors[colorIndex], dp(18), 120, 245, 0f, 0f, 1.25f);
+            sprayMist(colors[colorIndex], 16, dp(22), 45, 125, 0f, 0f, 0.72f);
+            sprayCore(mixWith(Color.WHITE, colors[colorIndex], 0.18f), dp(7), 80, 150, -dp(3), -dp(3), 0.55f);
+            drawDrips(colors[colorIndex], 3, dp(13), 0f, 0f, 0.42f);
         }
 
-        private void sprayCloud(int color, int dots, float spread, int alphaMin, int alphaMax, float sizeScale, float dx, float dy) {
+        private void sprayCore(int color, float radius, int alphaMin, int alphaMax, float dx, float dy, float sizeScale) {
+            int dots = 18;
             for (int i = 0; i < dots; i++) {
                 double a = Math.random() * Math.PI * 2.0;
-                float radius = (float)(Math.random() * spread);
-                float px = aimX + dx + (float)Math.cos(a) * radius;
-                float py = aimY + dy + (float)Math.sin(a) * radius;
-                float size = (dp(2) + (float)Math.random() * dp(8)) * sizeScale;
+                float rr = (float)Math.pow(Math.random(), 1.9) * radius;
+                float px = aimX + dx + (float)Math.cos(a) * rr;
+                float py = aimY + dy + (float)Math.sin(a) * rr;
+                float size = (dp(2.2f) + (float)Math.random() * dp(4.2f)) * sizeScale;
                 int alpha = alphaMin + (int)(Math.random() * Math.max(1, alphaMax - alphaMin + 1));
                 dotPaint.setStyle(Paint.Style.FILL);
                 dotPaint.setStrokeWidth(1f);
+                dotPaint.setColor(color);
+                dotPaint.setAlpha(alpha);
+                strokesCanvas.drawCircle(px, py, size, dotPaint);
+            }
+
+            // centro más sólido, para que el spray se comporte como aerosol real y no como confeti.
+            dotPaint.setColor(color);
+            dotPaint.setAlpha(Math.min(180, alphaMax));
+            strokesCanvas.drawCircle(aimX + dx, aimY + dy, radius * 0.28f * sizeScale, dotPaint);
+        }
+
+        private void sprayMist(int color, int dots, float spread, int alphaMin, int alphaMax, float dx, float dy, float sizeScale) {
+            for (int i = 0; i < dots; i++) {
+                double a = Math.random() * Math.PI * 2.0;
+                float rr = (float)Math.pow(Math.random(), 2.6) * spread;
+                float px = aimX + dx + (float)Math.cos(a) * rr;
+                float py = aimY + dy + (float)Math.sin(a) * rr;
+                float size = (dp(1.0f) + (float)Math.random() * dp(2.8f)) * sizeScale;
+                int alpha = alphaMin + (int)(Math.random() * Math.max(1, alphaMax - alphaMin + 1));
+                dotPaint.setStyle(Paint.Style.FILL);
                 dotPaint.setColor(color);
                 dotPaint.setAlpha(alpha);
                 strokesCanvas.drawCircle(px, py, size, dotPaint);
@@ -886,14 +935,15 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         private void drawDrips(int color, int count, float maxLen, float dx, float dy, float density) {
             for (int i = 0; i < count; i++) {
-                float dripLen = dp(4) + (float)Math.random() * maxLen;
-                float px = aimX + dx + ((float)Math.random() - 0.5f) * dp(22) * density;
-                float py = aimY + dy + ((float)Math.random() - 0.5f) * dp(14) * density;
+                if (Math.random() > 0.55) continue;
+                float dripLen = dp(3) + (float)Math.random() * maxLen;
+                float px = aimX + dx + ((float)Math.random() - 0.5f) * dp(18) * density;
+                float py = aimY + dy + ((float)Math.random() - 0.5f) * dp(10) * density;
                 dotPaint.setStyle(Paint.Style.STROKE);
                 dotPaint.setColor(color);
-                dotPaint.setAlpha(90 + (int)(Math.random() * 100));
-                dotPaint.setStrokeWidth(dp(2) + (float)Math.random() * dp(5));
-                strokesCanvas.drawLine(px, py, px + ((float)Math.random() - 0.5f) * dp(6), py + dripLen, dotPaint);
+                dotPaint.setAlpha(65 + (int)(Math.random() * 80));
+                dotPaint.setStrokeWidth(dp(1.2f) + (float)Math.random() * dp(2.4f));
+                strokesCanvas.drawLine(px, py, px + ((float)Math.random() - 0.5f) * dp(3), py + dripLen, dotPaint);
             }
             dotPaint.setStyle(Paint.Style.FILL);
         }
