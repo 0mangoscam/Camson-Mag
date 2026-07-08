@@ -34,6 +34,7 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -136,17 +137,21 @@ public class MainActivity extends Activity implements SensorEventListener {
         FrameLayout hud = new FrameLayout(this);
         hud.setPadding(dp(12), dp(12), dp(12), dp(12));
 
-        TextView logo = new TextView(this);
-        logo.setText("CAMSON\nMAG");
-        logo.setTextColor(Color.WHITE);
-        logo.setTextSize(42);
-        logo.setLineSpacing(-10, .9f);
-        logo.setTypeface(Typeface.DEFAULT_BOLD);
-        logo.setShadowLayer(8, 5, 5, Color.BLACK);
-        FrameLayout.LayoutParams logoLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
-        logoLp.topMargin = dp(8);
-        logoLp.leftMargin = dp(8);
-        hud.addView(logo, logoLp);
+        LinearLayout topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
+        topBar.setPadding(dp(10), dp(6), dp(10), dp(6));
+        topBar.setBackground(pill(Color.argb(130,0,0,0), Color.argb(45,255,255,255), dp(22)));
+        TextView ratioChip = topText("3:4");
+        TextView flashChip = topText("⚡A");
+        TextView menuChip = topText("⋮");
+        topBar.addView(ratioChip, new LinearLayout.LayoutParams(dp(54), dp(34)));
+        topBar.addView(flashChip, new LinearLayout.LayoutParams(dp(54), dp(34)));
+        topBar.addView(menuChip, new LinearLayout.LayoutParams(dp(42), dp(34)));
+        FrameLayout.LayoutParams topBarLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+        topBarLp.topMargin = dp(18);
+        topBarLp.leftMargin = dp(12);
+        hud.addView(topBar, topBarLp);
 
         modeBadge = new TextView(this);
         modeBadge.setText("MAPEANDO");
@@ -157,8 +162,8 @@ public class MainActivity extends Activity implements SensorEventListener {
         modeBadge.setPadding(dp(14), dp(8), dp(14), dp(8));
         modeBadge.setBackground(pill(Color.argb(210,0,0,0), Color.argb(70,255,255,255), dp(28)));
         FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
-        badgeLp.topMargin = dp(22);
-        badgeLp.rightMargin = dp(8);
+        badgeLp.topMargin = dp(18);
+        badgeLp.rightMargin = dp(12);
         hud.addView(modeBadge, badgeLp);
 
         crossView = new TextView(this);
@@ -197,8 +202,8 @@ public class MainActivity extends Activity implements SensorEventListener {
         buttons.setOrientation(LinearLayout.HORIZONTAL);
         buttons.setGravity(Gravity.CENTER);
         buttons.setPadding(0, dp(8), 0, 0);
-        colorButton = hudButton("COLOR", Color.rgb(182,255,53), Color.BLACK);
-        styleButton = hudButton("TIPO", Color.rgb(255,228,94), Color.BLACK);
+        colorButton = hudButton("BOQ", Color.rgb(255,79,216), Color.WHITE);
+        styleButton = hudButton("SENS", Color.rgb(245,238,224), Color.BLACK);
         photoButton = hudButton("FOTO", Color.rgb(92,232,255), Color.BLACK);
         sprayButton = hudButton("SPRAY", Color.rgb(255,79,216), Color.WHITE);
         Button clearButton = hudButton("LIMPIAR", Color.rgb(255,48,48), Color.WHITE);
@@ -215,23 +220,23 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         colorButton.setOnClickListener(v -> {
             if (photoModeActive && activePhotoView != null) {
-                activePhotoView.nextColor();
-                colorButton.setText(activePhotoView.colorName());
-                setStatus("Color del spray foto cambiado a " + activePhotoView.colorName() + ".");
-            } else {
-                renderer.nextColor();
-                colorButton.setText(renderer.colorName());
-            }
-            vibrate(25);
-        });
-        styleButton.setOnClickListener(v -> {
-            if (photoModeActive && activePhotoView != null) {
                 activePhotoView.nextSprayStyle();
-                styleButton.setText(activePhotoView.sprayStyleName());
+                colorButton.setText(activePhotoView.sprayStyleName());
                 setStatus("Boquilla cambiada a " + activePhotoView.sprayStyleName() + ".");
                 vibrate(20);
             } else {
-                setStatus("Los sprays artísticos avanzados están en MODO FOTO.");
+                setStatus("Las boquillas viven en MODO FOTO. Pulsa FOTO y elige cap.");
+                vibrate(15);
+            }
+        });
+        styleButton.setOnClickListener(v -> {
+            if (photoModeActive && activePhotoView != null) {
+                activePhotoView.nextSensitivity();
+                styleButton.setText(activePhotoView.sensitivityName());
+                setStatus("Sensibilidad del giroscopio: " + activePhotoView.sensitivityName() + ".");
+                vibrate(18);
+            } else {
+                setStatus("SENS ajusta el control de mira dentro del MODO FOTO.");
                 vibrate(15);
             }
         });
@@ -281,150 +286,188 @@ public class MainActivity extends Activity implements SensorEventListener {
         photoModeActive = true;
         overlay.addView(canvas, new FrameLayout.LayoutParams(-1, -1));
 
-        TextView title = new TextView(this);
-        title.setText("MODO FOTO");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(28);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setShadowLayer(8, 4, 4, Color.BLACK);
-        FrameLayout.LayoutParams titleLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
-        titleLp.topMargin = dp(18);
-        titleLp.leftMargin = dp(18);
-        overlay.addView(title, titleLp);
+        LinearLayout topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
+        topBar.setPadding(dp(10), dp(8), dp(10), dp(8));
+        topBar.setBackground(pill(Color.argb(120,0,0,0), Color.argb(42,255,255,255), dp(28)));
 
-        TextView hint = new TextView(this);
-        hint.setText("Ahora apunta con giroscopio real. CENTRO recalibra la mira y SENS cambia la velocidad.");
-        hint.setTextColor(Color.WHITE);
-        hint.setTextSize(12);
-        hint.setGravity(Gravity.CENTER);
-        hint.setPadding(dp(10), dp(8), dp(10), dp(8));
-        hint.setBackground(pill(Color.argb(180,0,0,0), Color.argb(80,255,255,255), dp(18)));
-        FrameLayout.LayoutParams hintLp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        hintLp.topMargin = dp(74);
-        hintLp.leftMargin = dp(18);
-        hintLp.rightMargin = dp(18);
-        overlay.addView(hint, hintLp);
+        ImageView appIcon = new ImageView(this);
+        int iconId = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName());
+        if (iconId != 0) appIcon.setImageResource(iconId);
+        appIcon.setBackground(pill(Color.argb(120,0,0,0), Color.argb(90,255,255,255), dp(10)));
+        appIcon.setPadding(dp(3), dp(3), dp(3), dp(3));
+        topBar.addView(appIcon, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        topBar.addView(topText("⌄"), new LinearLayout.LayoutParams(dp(42), dp(48)));
+        topBar.addView(topText("3:4"), new LinearLayout.LayoutParams(dp(62), dp(48)));
+        topBar.addView(topText("⚡A"), new LinearLayout.LayoutParams(dp(62), dp(48)));
+        topBar.addView(topText("⋮"), new LinearLayout.LayoutParams(dp(42), dp(48)));
+        FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        topLp.topMargin = dp(14);
+        overlay.addView(topBar, topLp);
 
-        Button obra = hudButton("OBRA", Color.rgb(255,228,94), Color.BLACK);
-        FrameLayout.LayoutParams obraLp = new FrameLayout.LayoutParams(dp(96), dp(52), Gravity.TOP | Gravity.END);
-        obraLp.topMargin = dp(18);
-        obraLp.rightMargin = dp(18);
-        overlay.addView(obra, obraLp);
+        TextView aimBadge = new TextView(this);
+        aimBadge.setText("GIROSCOPIO · NORMAL");
+        aimBadge.setTextColor(Color.WHITE);
+        aimBadge.setTextSize(11);
+        aimBadge.setGravity(Gravity.CENTER);
+        aimBadge.setPadding(dp(10), dp(6), dp(10), dp(6));
+        aimBadge.setBackground(pill(Color.argb(120,0,0,0), Color.argb(55,255,255,255), dp(18)));
+        FrameLayout.LayoutParams aimLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        aimLp.topMargin = dp(84);
+        overlay.addView(aimBadge, aimLp);
 
-        LinearLayout controls = new LinearLayout(this);
-        controls.setOrientation(LinearLayout.VERTICAL);
-        controls.setGravity(Gravity.CENTER);
-        controls.setPadding(dp(8), dp(8), dp(8), dp(8));
-        LinearLayout rowTools = new LinearLayout(this);
-        rowTools.setOrientation(LinearLayout.HORIZONTAL);
-        rowTools.setGravity(Gravity.CENTER);
-        LinearLayout rowActions = new LinearLayout(this);
-        rowActions.setOrientation(LinearLayout.HORIZONTAL);
-        rowActions.setGravity(Gravity.CENTER);
-        Button save = hudButton("GUARDAR", Color.rgb(182,255,53), Color.BLACK);
-        Button color = hudButton("COLOR", Color.rgb(92,232,255), Color.BLACK);
-        Button style = hudButton("TIPO", Color.rgb(255,228,94), Color.BLACK);
-        Button sens = hudButton("SENS", Color.rgb(245,238,224), Color.BLACK);
-        Button axes = hudButton("EJES", Color.rgb(245,238,224), Color.BLACK);
-        Button center = hudButton("CENTRO", Color.rgb(245,238,224), Color.BLACK);
-        Button spray = hudButton("SPRAY", Color.rgb(255,79,216), Color.WHITE);
-        Button clear = hudButton("LIMPIAR", Color.rgb(255,48,48), Color.WHITE);
-        Button exit = hudButton("SALIR", Color.rgb(20,20,20), Color.WHITE);
-        rowTools.addView(color, new LinearLayout.LayoutParams(0, dp(52), 1));
-        rowTools.addView(style, new LinearLayout.LayoutParams(0, dp(52), 1));
-        rowTools.addView(sens, new LinearLayout.LayoutParams(0, dp(52), 1));
-        rowTools.addView(axes, new LinearLayout.LayoutParams(0, dp(52), 1));
-        rowTools.addView(center, new LinearLayout.LayoutParams(0, dp(52), 1));
-        rowActions.addView(save, new LinearLayout.LayoutParams(0, dp(58), 1));
-        rowActions.addView(spray, new LinearLayout.LayoutParams(0, dp(58), 1));
-        rowActions.addView(clear, new LinearLayout.LayoutParams(0, dp(58), 1));
-        rowActions.addView(exit, new LinearLayout.LayoutParams(0, dp(58), 1));
-        controls.addView(rowTools, new LinearLayout.LayoutParams(-1, -2));
-        controls.addView(rowActions, new LinearLayout.LayoutParams(-1, -2));
-        FrameLayout.LayoutParams controlsLp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        controlsLp.bottomMargin = dp(10);
-        overlay.addView(controls, controlsLp);
-        color.setText(canvas.colorName());
-        style.setText(canvas.sprayStyleName());
-        sens.setText(canvas.sensitivityName());
-        axes.setText(canvas.axisModeName());
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setGravity(Gravity.CENTER);
+        panel.setPadding(dp(14), dp(14), dp(14), dp(12));
+        panel.setBackground(bottomPanel());
 
+        LinearLayout toolRow = new LinearLayout(this);
+        toolRow.setOrientation(LinearLayout.HORIZONTAL);
+        toolRow.setGravity(Gravity.CENTER);
+        Button clear = darkToolButton("◌\nClear");
+        Button center = darkToolButton("⌖\nCenter");
+        Button save = darkToolButton("⇩\nSave");
+        Button sens = darkToolButton("⚙\n" + canvas.sensitivityName());
+        toolRow.addView(clear, new LinearLayout.LayoutParams(0, dp(64), 1));
+        toolRow.addView(center, new LinearLayout.LayoutParams(0, dp(64), 1));
+        toolRow.addView(save, new LinearLayout.LayoutParams(0, dp(64), 1));
+        toolRow.addView(sens, new LinearLayout.LayoutParams(0, dp(64), 1));
+        panel.addView(toolRow, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView sprayDial = new TextView(this);
+        sprayDial.setText("●\nSPRAY READY");
+        sprayDial.setTextColor(Color.rgb(255,136,178));
+        sprayDial.setTextSize(14);
+        sprayDial.setTypeface(Typeface.DEFAULT_BOLD);
+        sprayDial.setGravity(Gravity.CENTER);
+        sprayDial.setPadding(dp(8), dp(8), dp(8), dp(8));
+        sprayDial.setBackground(pill(Color.argb(185,8,8,10), Color.argb(115,255,136,178), dp(54)));
+        FrameLayout.LayoutParams dialLp = new FrameLayout.LayoutParams(dp(132), dp(86));
+        LinearLayout.LayoutParams dialLinearLp = new LinearLayout.LayoutParams(dp(132), dp(86));
+        dialLinearLp.topMargin = dp(6);
+        panel.addView(sprayDial, dialLinearLp);
+
+        TextView activeCap = new TextView(this);
+        activeCap.setText("BOQUILLA · " + canvas.sprayStyleName());
+        activeCap.setTextColor(Color.WHITE);
+        activeCap.setTextSize(12);
+        activeCap.setGravity(Gravity.CENTER);
+        activeCap.setTypeface(Typeface.DEFAULT_BOLD);
+        activeCap.setPadding(dp(6), dp(4), dp(6), dp(4));
+        panel.addView(activeCap, new LinearLayout.LayoutParams(-1, dp(32)));
+
+        LinearLayout nozzleRow = new LinearLayout(this);
+        nozzleRow.setOrientation(LinearLayout.HORIZONTAL);
+        nozzleRow.setGravity(Gravity.CENTER);
+        nozzleRow.setPadding(0, dp(6), 0, dp(6));
+
+        String[] labels = new String[] { "Soft", "Fat", "Needle", "Shadow", "3D", "Drip", "Tube", "Classic" };
+        int[] styles = new int[] { 7, 4, 0, 2, 3, 5, 6, 1 };
+        int[] colorIdx = new int[] { 2, 1, 0, 6, 3, 4, 5, 1 };
+        int[] cardColors = new int[] {
+                Color.rgb(92,232,255), Color.rgb(255,136,178), Color.rgb(182,255,53), Color.rgb(245,238,224),
+                Color.rgb(255,228,94), Color.rgb(160,100,255), Color.rgb(245,238,224), Color.rgb(255,79,216)
+        };
+        for (int i = 0; i < labels.length; i++) {
+            final int styleIndex = styles[i];
+            final int colorIndex = colorIdx[i];
+            final TextView chip = nozzleChip(labels[i], cardColors[i]);
+            chip.setOnClickListener(v -> {
+                canvas.setSprayStyle(styleIndex);
+                canvas.setColorIndex(colorIndex);
+                markNozzleSelection(nozzleRow, chip);
+                activeCap.setText("BOQUILLA · " + canvas.sprayStyleName());
+                colorButton.setText(canvas.sprayStyleName());
+                if (styleButton != null) styleButton.setText(canvas.sensitivityName());
+                aimBadge.setText("GIROSCOPIO · " + canvas.sensitivityName());
+                setStatus("Boquilla " + canvas.sprayStyleName() + " preparada.");
+                vibrate(18);
+            });
+            LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(0, dp(92), 1);
+            chipLp.leftMargin = dp(3);
+            chipLp.rightMargin = dp(3);
+            nozzleRow.addView(chip, chipLp);
+        }
+        panel.addView(nozzleRow, new LinearLayout.LayoutParams(-1, -2));
+        if (nozzleRow.getChildCount() > 0) markNozzleSelection(nozzleRow, nozzleRow.getChildAt(0));
+
+        LinearLayout bottomRow = new LinearLayout(this);
+        bottomRow.setOrientation(LinearLayout.HORIZONTAL);
+        bottomRow.setGravity(Gravity.CENTER);
+        Button spray = hudButton("SPRAY", Color.argb(235, 20,20,24), Color.rgb(255,136,178));
+        Button axes = darkToolButton("EJES");
+        Button obra = darkToolButton("OBRA");
+        Button exit = darkToolButton("AR");
+        bottomRow.addView(spray, new LinearLayout.LayoutParams(0, dp(64), 2));
+        bottomRow.addView(axes, new LinearLayout.LayoutParams(0, dp(64), 1));
+        bottomRow.addView(obra, new LinearLayout.LayoutParams(0, dp(64), 1));
+        bottomRow.addView(exit, new LinearLayout.LayoutParams(0, dp(64), 1));
+        panel.addView(bottomRow, new LinearLayout.LayoutParams(-1, -2));
+
+        FrameLayout.LayoutParams panelLp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+        overlay.addView(panel, panelLp);
+
+        clear.setOnClickListener(v -> {
+            canvas.clearPaint();
+            setStatus("Lienzo limpio.");
+            vibrate(18);
+        });
+        center.setOnClickListener(v -> {
+            canvas.centerAim();
+            setStatus("Mira recentrada. Esta posición es tu centro.");
+            vibrate(30);
+        });
         save.setOnClickListener(v -> {
             try {
                 Bitmap out = canvas.exportBitmap();
                 saveBitmapToDownloads(out, "camson-mag-foto-" + System.currentTimeMillis() + ".png");
-                setStatus("Foto pintada guardada en Descargas/CamsonMag.");
+                setStatus("Obra guardada en Descargas/CamsonMag.");
                 vibrate(50);
             } catch (Exception e) {
                 setStatus("Error guardando foto: " + e.getMessage());
             }
         });
-        color.setOnClickListener(v -> {
-            canvas.nextColor();
-            color.setText(canvas.colorName());
-            colorButton.setText(canvas.colorName());
-            vibrate(20);
-        });
-        style.setOnClickListener(v -> {
-            canvas.nextSprayStyle();
-            String styleName = canvas.sprayStyleName();
-            style.setText(styleName);
-            if (styleButton != null) styleButton.setText(styleName);
-            setStatus("Boquilla de foto: " + styleName + ".");
-            vibrate(20);
-        });
         sens.setOnClickListener(v -> {
             canvas.nextSensitivity();
-            sens.setText(canvas.sensitivityName());
-            setStatus("Sensibilidad del giroscopio: " + canvas.sensitivityName() + ".");
+            sens.setText("⚙\n" + canvas.sensitivityName());
+            if (styleButton != null) styleButton.setText(canvas.sensitivityName());
+            aimBadge.setText("GIROSCOPIO · " + canvas.sensitivityName());
+            setStatus("Sensibilidad: " + canvas.sensitivityName() + ".");
             vibrate(18);
         });
         axes.setOnClickListener(v -> {
             canvas.nextAxisMode();
             axes.setText(canvas.axisModeName());
-            setStatus("Ejes del giroscopio: " + canvas.axisModeName() + ". Si la mira va al revés, pulsa EJES otra vez.");
+            setStatus("Ejes: " + canvas.axisModeName() + ". Si va invertido, pulsa otra vez.");
             vibrate(18);
         });
-        center.setOnClickListener(v -> {
-            canvas.centerAim();
-            setStatus("Mira recentrada. Ahora esta posición es tu punto cómodo.");
-            vibrate(30);
-        });
         spray.setOnTouchListener((v, e) -> {
-            if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                startSpray();
-                return true;
-            }
-            if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) {
-                stopSpray();
-                return true;
-            }
+            if (e.getAction() == MotionEvent.ACTION_DOWN) { startSpray(); return true; }
+            if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) { stopSpray(); return true; }
             return true;
-        });
-        clear.setOnClickListener(v -> {
-            canvas.clearPaint();
-            setStatus("Pintura de la foto limpiada.");
         });
         final boolean[] obraMode = new boolean[]{ false };
         obra.setOnClickListener(v -> {
             obraMode[0] = !obraMode[0];
             canvas.setStudioMode(obraMode[0]);
-            title.setVisibility(obraMode[0] ? View.GONE : View.VISIBLE);
-            hint.setVisibility(obraMode[0] ? View.GONE : View.VISIBLE);
-            controls.setVisibility(obraMode[0] ? View.GONE : View.VISIBLE);
+            topBar.setVisibility(obraMode[0] ? View.GONE : View.VISIBLE);
+            aimBadge.setVisibility(obraMode[0] ? View.GONE : View.VISIBLE);
+            panel.setVisibility(obraMode[0] ? View.GONE : View.VISIBLE);
             obra.setText(obraMode[0] ? "UI" : "OBRA");
             modeBadge.setText(obraMode[0] ? "OBRA" : "FOTO");
-            setStatus(obraMode[0] ? "Modo obra: interfaz fuera, lienzo dentro." : "Interfaz de modo foto restaurada.");
+            setStatus(obraMode[0] ? "Modo obra limpio." : "Hub restaurado.");
             vibrate(25);
         });
         exit.setOnClickListener(v -> closePhotoMode());
 
         photoOverlay = overlay;
         rootLayout.addView(photoOverlay, new FrameLayout.LayoutParams(-1, -1));
-        colorButton.setText(canvas.colorName());
-        if (styleButton != null) styleButton.setText(canvas.sprayStyleName());
+        colorButton.setText(canvas.sprayStyleName());
+        if (styleButton != null) styleButton.setText(canvas.sensitivityName());
         updatePaint(canvas.paintPercent());
-        setStatus("Modo foto activo. Apunta con el giroscopio. Usa CENTRO para recentrar, SENS para velocidad y EJES si está invertido.");
+        setStatus("Nuevo hub activo. Elige boquilla abajo, apunta con giroscopio y pinta con volumen o SPRAY.");
     }
 
     private void closePhotoMode() {
@@ -435,8 +478,8 @@ public class MainActivity extends Activity implements SensorEventListener {
         }
         activePhotoView = null;
         photoModeActive = false;
-        colorButton.setText(renderer.colorName());
-        if (styleButton != null) styleButton.setText("TIPO");
+        colorButton.setText("BOQ");
+        if (styleButton != null) styleButton.setText("SENS");
         updatePaint(100);
         modeBadge.setText(renderer != null && renderer.isMappingReady() ? "VOL = SPRAY" : "MAPEANDO");
         setStatus("Has vuelto al modo AR. Usa FOTO cuando quieras congelar la escena y pintar sin tracking.");
@@ -479,6 +522,64 @@ public class MainActivity extends Activity implements SensorEventListener {
         b.setAllCaps(false);
         b.setBackground(pill(color, Color.argb(80,0,0,0), dp(16)));
         return b;
+    }
+
+    private Button darkToolButton(String text) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setTextSize(12);
+        b.setTextColor(Color.WHITE);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setAllCaps(false);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(dp(3), dp(3), dp(3), dp(3));
+        b.setBackground(pill(Color.argb(175, 12, 12, 16), Color.argb(68,255,255,255), dp(24)));
+        return b;
+    }
+
+    private TextView topText(String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(15);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setGravity(Gravity.CENTER);
+        t.setShadowLayer(dp(1), 0, 0, Color.BLACK);
+        return t;
+    }
+
+    private TextView nozzleChip(String label, int accent) {
+        TextView chip = new TextView(this);
+        chip.setText("●\n" + label);
+        chip.setTextColor(Color.WHITE);
+        chip.setTextSize(11);
+        chip.setTypeface(Typeface.DEFAULT_BOLD);
+        chip.setGravity(Gravity.CENTER);
+        chip.setPadding(dp(4), dp(4), dp(4), dp(4));
+        chip.setShadowLayer(dp(2), 0, 0, Color.BLACK);
+        chip.setBackground(pill(Color.argb(178, 12, 12, 16), Color.argb(130, Color.red(accent), Color.green(accent), Color.blue(accent)), dp(16)));
+        chip.setAlpha(0.76f);
+        return chip;
+    }
+
+    private void markNozzleSelection(LinearLayout row, View selected) {
+        for (int i = 0; i < row.getChildCount(); i++) {
+            View child = row.getChildAt(i);
+            child.setAlpha(child == selected ? 1f : 0.62f);
+            child.setScaleX(child == selected ? 1.04f : 0.96f);
+            child.setScaleY(child == selected ? 1.04f : 0.96f);
+        }
+    }
+
+    private GradientDrawable bottomPanel() {
+        GradientDrawable g = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[] { Color.argb(78, 0,0,0), Color.argb(232, 2,2,4), Color.argb(248, 0,0,0) }
+        );
+        float r = dp(34);
+        g.setCornerRadii(new float[] { r,r, r,r, 0,0, 0,0 });
+        g.setStroke(dp(1), Color.argb(42,255,255,255));
+        return g;
     }
 
     private GradientDrawable pill(int color, int stroke, int radius) {
@@ -863,10 +964,22 @@ public class MainActivity extends Activity implements SensorEventListener {
             invalidate();
         }
 
+        void setColorIndex(int index) {
+            colorIndex = Math.max(0, Math.min(colors.length - 1, index));
+            dotPaint.setColor(colors[colorIndex]);
+            invalidate();
+        }
+
         String colorName() { return colorNames[colorIndex]; }
 
         void nextSprayStyle() {
             sprayStyleIndex = (sprayStyleIndex + 1) % sprayStyles.length;
+            invalidate();
+        }
+
+        void setSprayStyle(int index) {
+            sprayStyleIndex = Math.max(0, Math.min(sprayStyles.length - 1, index));
+            hasSprayTrail = false;
             invalidate();
         }
 
