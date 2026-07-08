@@ -103,6 +103,8 @@ public class MainActivity extends Activity implements SensorEventListener {
     private int ratioModeIndex = 0;
     private int flashModeIndex = 0;
     private boolean torchOn = false;
+    private boolean directPhotoWaiting = false;
+    private int directPhotoAttempts = 0;
     private final String[] ratioLabels = new String[] { "3:4", "1:1", "9:16", "FULL" };
     private final String[] flashLabels = new String[] { "⚡A", "⚡ON", "⚡OFF" };
 
@@ -147,129 +149,112 @@ public class MainActivity extends Activity implements SensorEventListener {
     private View makeHud() {
         FrameLayout hud = new FrameLayout(this);
         hud.setPadding(dp(12), dp(12), dp(12), dp(12));
+        hud.setBackgroundColor(Color.argb(35, 0, 0, 0));
 
-        LinearLayout topBar = new LinearLayout(this);
-        topBar.setOrientation(LinearLayout.HORIZONTAL);
-        topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setPadding(dp(10), dp(6), dp(10), dp(6));
-        topBar.setBackground(pill(Color.argb(130,0,0,0), Color.argb(45,255,255,255), dp(22)));
+        FrameLayout topBar = new FrameLayout(this);
+        topBar.setPadding(dp(18), dp(10), dp(18), dp(8));
+        topBar.setBackground(topGlassBar());
+        FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(-1, dp(88), Gravity.TOP);
+        hud.addView(topBar, topLp);
+
+        ImageView appIcon = new ImageView(this);
+        int iconId = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName());
+        if (iconId != 0) appIcon.setImageResource(iconId);
+        appIcon.setPadding(dp(3), dp(3), dp(3), dp(3));
+        appIcon.setBackground(pill(Color.argb(155,10,10,12), Color.argb(95,255,255,255), dp(12)));
+        FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(dp(50), dp(50), Gravity.START | Gravity.CENTER_VERTICAL);
+        iconLp.leftMargin = dp(6);
+        topBar.addView(appIcon, iconLp);
+
+        TextView directLabel = topText("PHOTO");
+        directLabel.setTextSize(14);
+        directLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        directLabel.setTextColor(Color.rgb(255,136,178));
+        FrameLayout.LayoutParams directLp = new FrameLayout.LayoutParams(dp(98), dp(54), Gravity.START | Gravity.CENTER_VERTICAL);
+        directLp.leftMargin = dp(66);
+        topBar.addView(directLabel, directLp);
+
         mainRatioChip = topText(ratioLabels[ratioModeIndex]);
-        mainFlashChip = topText(flashLabels[flashModeIndex]);
-        TextView menuChip = topText("⋮");
+        mainRatioChip.setTextSize(16);
+        mainRatioChip.setBackground(pill(Color.argb(70,0,0,0), Color.argb(170,255,255,255), dp(6)));
         mainRatioChip.setOnClickListener(v -> cycleRatioMode());
-        mainFlashChip.setOnClickListener(v -> cycleFlashMode());
-        menuChip.setOnClickListener(v -> setStatus("Menú pronto: guardados, capas y ajustes finos."));
-        topBar.addView(mainRatioChip, new LinearLayout.LayoutParams(dp(58), dp(34)));
-        topBar.addView(mainFlashChip, new LinearLayout.LayoutParams(dp(66), dp(34)));
-        topBar.addView(menuChip, new LinearLayout.LayoutParams(dp(42), dp(34)));
-        FrameLayout.LayoutParams topBarLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
-        topBarLp.topMargin = dp(18);
-        topBarLp.leftMargin = dp(12);
-        hud.addView(topBar, topBarLp);
+        FrameLayout.LayoutParams ratioLp = new FrameLayout.LayoutParams(dp(58), dp(44), Gravity.CENTER);
+        topBar.addView(mainRatioChip, ratioLp);
 
-        modeBadge = new TextView(this);
-        modeBadge.setText("MAPEANDO");
-        modeBadge.setTextColor(Color.rgb(182,255,53));
-        modeBadge.setTextSize(14);
-        modeBadge.setTypeface(Typeface.DEFAULT_BOLD);
-        modeBadge.setGravity(Gravity.CENTER);
-        modeBadge.setPadding(dp(14), dp(8), dp(14), dp(8));
-        modeBadge.setBackground(pill(Color.argb(210,0,0,0), Color.argb(70,255,255,255), dp(28)));
-        FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
-        badgeLp.topMargin = dp(18);
-        badgeLp.rightMargin = dp(12);
-        hud.addView(modeBadge, badgeLp);
+        mainFlashChip = topText(flashLabels[flashModeIndex]);
+        mainFlashChip.setTextSize(24);
+        mainFlashChip.setOnClickListener(v -> cycleFlashMode());
+        FrameLayout.LayoutParams flashLp = new FrameLayout.LayoutParams(dp(74), dp(54), Gravity.END | Gravity.CENTER_VERTICAL);
+        flashLp.rightMargin = dp(64);
+        topBar.addView(mainFlashChip, flashLp);
+
+        TextView menuChip = topText("⋮");
+        menuChip.setTextSize(34);
+        menuChip.setOnClickListener(v -> setStatus("Camson Mag ahora abre el lienzo foto directamente."));
+        FrameLayout.LayoutParams menuLp = new FrameLayout.LayoutParams(dp(50), dp(54), Gravity.END | Gravity.CENTER_VERTICAL);
+        menuLp.rightMargin = dp(6);
+        topBar.addView(menuChip, menuLp);
 
         crossView = new TextView(this);
         crossView.setText("+");
-        crossView.setTextColor(Color.argb(210,255,255,255));
-        crossView.setTextSize(50);
+        crossView.setTextColor(Color.argb(190,255,255,255));
+        crossView.setTextSize(58);
         crossView.setGravity(Gravity.CENTER);
-        crossView.setBackground(pill(Color.argb(60,0,0,0), Color.argb(120,255,255,255), dp(44)));
-        FrameLayout.LayoutParams crossLp = new FrameLayout.LayoutParams(dp(86), dp(86), Gravity.CENTER);
+        crossView.setShadowLayer(dp(3), 0, 0, Color.BLACK);
+        FrameLayout.LayoutParams crossLp = new FrameLayout.LayoutParams(dp(110), dp(110), Gravity.CENTER);
         hud.addView(crossView, crossLp);
 
+        modeBadge = new TextView(this);
+        modeBadge.setText("PHOTO");
+        modeBadge.setTextColor(Color.rgb(255,136,178));
+        modeBadge.setTextSize(15);
+        modeBadge.setTypeface(Typeface.DEFAULT_BOLD);
+        modeBadge.setGravity(Gravity.CENTER);
+        modeBadge.setPadding(dp(14), dp(8), dp(14), dp(8));
+        modeBadge.setBackground(pill(Color.argb(172,0,0,0), Color.argb(80,255,136,178), dp(28)));
+        FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        badgeLp.bottomMargin = dp(126);
+        hud.addView(modeBadge, badgeLp);
+
         statusText = new TextView(this);
-        statusText.setText("Mapeando entorno... mueve el móvil despacio y apunta a pared o suelo.");
+        statusText.setText("Preparando lienzo foto...");
         statusText.setTextColor(Color.WHITE);
         statusText.setTextSize(12);
         statusText.setGravity(Gravity.CENTER);
         statusText.setPadding(dp(10), dp(8), dp(10), dp(8));
-        statusText.setBackground(pill(Color.argb(185,0,0,0), Color.argb(70,255,255,255), dp(18)));
-        FrameLayout.LayoutParams statusLp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        statusLp.topMargin = dp(118);
-        statusLp.leftMargin = dp(24);
-        statusLp.rightMargin = dp(24);
+        statusText.setBackground(pill(Color.argb(150,0,0,0), Color.argb(55,255,255,255), dp(18)));
+        FrameLayout.LayoutParams statusLp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        statusLp.leftMargin = dp(28);
+        statusLp.rightMargin = dp(28);
+        statusLp.bottomMargin = dp(82);
         hud.addView(statusText, statusLp);
-
-        LinearLayout bottom = new LinearLayout(this);
-        bottom.setOrientation(LinearLayout.VERTICAL);
-        bottom.setGravity(Gravity.CENTER);
-        bottom.setPadding(dp(8), dp(8), dp(8), dp(8));
 
         paintMeter = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         paintMeter.setMax(100);
         paintMeter.setProgress(100);
-        bottom.addView(paintMeter, new LinearLayout.LayoutParams(-1, dp(22)));
+        paintMeter.setAlpha(0.45f);
+        FrameLayout.LayoutParams meterLp = new FrameLayout.LayoutParams(-1, dp(18), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        meterLp.leftMargin = dp(38);
+        meterLp.rightMargin = dp(38);
+        meterLp.bottomMargin = dp(54);
+        hud.addView(paintMeter, meterLp);
 
-        LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.setGravity(Gravity.CENTER);
-        buttons.setPadding(0, dp(8), 0, 0);
+        // Botones ocultos que se reutilizan como estado interno cuando se abre el hub de foto.
         colorButton = hudButton("BOQ", Color.rgb(255,79,216), Color.WHITE);
         styleButton = hudButton("SENS", Color.rgb(245,238,224), Color.BLACK);
-        photoButton = hudButton("FOTO", Color.rgb(92,232,255), Color.BLACK);
-        sprayButton = hudButton("SPRAY", Color.rgb(255,79,216), Color.WHITE);
-        Button clearButton = hudButton("LIMPIAR", Color.rgb(255,48,48), Color.WHITE);
-        buttons.addView(colorButton, new LinearLayout.LayoutParams(0, dp(58), 1));
-        buttons.addView(styleButton, new LinearLayout.LayoutParams(0, dp(58), 1));
-        buttons.addView(photoButton, new LinearLayout.LayoutParams(0, dp(58), 1));
-        buttons.addView(sprayButton, new LinearLayout.LayoutParams(0, dp(58), 1));
-        buttons.addView(clearButton, new LinearLayout.LayoutParams(0, dp(58), 1));
-        bottom.addView(buttons, new LinearLayout.LayoutParams(-1, -2));
+        photoButton = hudButton("PHOTO", Color.rgb(92,232,255), Color.BLACK);
+        sprayButton = hudButton("SPRAY", Color.rgb(255,136,178), Color.BLACK);
+        colorButton.setVisibility(View.GONE);
+        styleButton.setVisibility(View.GONE);
+        photoButton.setVisibility(View.GONE);
+        sprayButton.setVisibility(View.GONE);
+        hud.addView(colorButton, new FrameLayout.LayoutParams(1, 1));
+        hud.addView(styleButton, new FrameLayout.LayoutParams(1, 1));
+        hud.addView(photoButton, new FrameLayout.LayoutParams(1, 1));
+        hud.addView(sprayButton, new FrameLayout.LayoutParams(1, 1));
 
-        FrameLayout.LayoutParams bottomLp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        bottomLp.bottomMargin = dp(8);
-        hud.addView(bottom, bottomLp);
-
-        colorButton.setOnClickListener(v -> {
-            if (photoModeActive && activePhotoView != null) {
-                activePhotoView.nextSprayStyle();
-                colorButton.setText(activePhotoView.sprayStyleName());
-                setStatus("Boquilla cambiada a " + activePhotoView.sprayStyleName() + ".");
-                vibrate(20);
-            } else {
-                setStatus("Las boquillas viven en MODO FOTO. Pulsa FOTO y elige cap.");
-                vibrate(15);
-            }
-        });
-        styleButton.setOnClickListener(v -> {
-            if (photoModeActive && activePhotoView != null) {
-                activePhotoView.nextSensitivity();
-                styleButton.setText(activePhotoView.sensitivityName());
-                setStatus("Sensibilidad del giroscopio: " + activePhotoView.sensitivityName() + ".");
-                vibrate(18);
-            } else {
-                setStatus("SENS ajusta el control de mira dentro del MODO FOTO.");
-                vibrate(15);
-            }
-        });
-        photoButton.setOnClickListener(v -> capturePhotoCanvas());
-        clearButton.setOnClickListener(v -> {
-            if (photoModeActive && activePhotoView != null) {
-                activePhotoView.clearPaint();
-                setStatus("Foto limpia. La niebla de pintura desapareció.");
-            } else {
-                surfaceView.queueEvent(() -> renderer.clearMarks());
-                setStatus("Pared limpia. La lata borra sus fantasmas.");
-            }
-        });
-        sprayButton.setOnTouchListener((v, e) -> {
-            if (e.getAction() == MotionEvent.ACTION_DOWN) { startSpray(); return true; }
-            if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) { stopSpray(); return true; }
-            return true;
-        });
-        setSprayEnabled(false);
+        updateRatioUi();
+        updateFlashUi();
         return hud;
     }
 
@@ -280,10 +265,38 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private void capturePhotoCanvas() {
         if (renderer == null || surfaceView == null) return;
-        setStatus("Congelando entorno para pintar en modo foto...");
-        modeBadge.setText("FOTO");
-        vibrate(25);
-        surfaceView.queueEvent(() -> renderer.captureFrame(bitmap -> runOnUiThread(() -> showPhotoMode(bitmap))));
+        setStatus("Entrando directamente al lienzo foto...");
+        if (modeBadge != null) modeBadge.setText("PHOTO");
+        vibrate(18);
+        surfaceView.queueEvent(() -> renderer.captureFrame(bitmap -> runOnUiThread(() -> {
+            directPhotoWaiting = false;
+            if (bitmap == null || bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0) {
+                directPhotoAttempts++;
+                if (directPhotoAttempts < 10) {
+                    setStatus("Preparando cámara interna... abriendo modo foto en un instante.");
+                    scheduleDirectPhotoMode(420);
+                } else {
+                    setStatus("No pude congelar la imagen todavía. Toca el icono de cámara o pulsa volumen para reintentar.");
+                }
+                return;
+            }
+            directPhotoAttempts = 0;
+            showPhotoMode(bitmap);
+        })));
+    }
+
+    private void scheduleDirectPhotoMode(long delayMs) {
+        if (!hasCameraPermission || photoModeActive || directPhotoWaiting || rootLayout == null) return;
+        directPhotoWaiting = true;
+        if (statusText != null) setStatus("Preparando lienzo foto directo...");
+        if (modeBadge != null) modeBadge.setText("PHOTO");
+        rootLayout.postDelayed(() -> {
+            if (!photoModeActive) {
+                capturePhotoCanvas();
+            } else {
+                directPhotoWaiting = false;
+            }
+        }, delayMs);
     }
 
     private void showPhotoMode(Bitmap bitmap) {
@@ -436,7 +449,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         tabRow.setPadding(0, dp(2), 0, 0);
         tabRow.setBackground(pill(Color.argb(105, 0,0,0), Color.argb(30,255,255,255), dp(0)));
         TextView sprayTab = bottomTab("SPRAY", true);
-        TextView photoTab = bottomTab("PHOTO", false);
+        TextView photoTab = bottomTab("CAMERA", false);
         sprayTab.setOnTouchListener((v, e) -> {
             if (e.getAction() == MotionEvent.ACTION_DOWN) { startSpray(); return true; }
             if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) { stopSpray(); return true; }
@@ -468,7 +481,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         colorButton.setText(canvas.sprayStyleName());
         if (styleButton != null) styleButton.setText(canvas.sensitivityName());
         updatePaint(canvas.paintPercent());
-        setStatus("Hub visual aplicado. Elige boquilla, apunta con el móvil y mantén SPRAY o volumen.");
+        setStatus("Modo foto directo. Elige boquilla, apunta con el móvil y mantén SPRAY o volumen.");
     }
 
     private void closePhotoMode() {
@@ -486,8 +499,9 @@ public class MainActivity extends Activity implements SensorEventListener {
         updateRatioUi();
         updateFlashUi();
         updatePaint(100);
-        modeBadge.setText(renderer != null && renderer.isMappingReady() ? "VOL = SPRAY" : "MAPEANDO");
-        setStatus("Has vuelto al modo AR. Usa FOTO cuando quieras congelar la escena y pintar sin tracking.");
+        modeBadge.setText("PHOTO");
+        setStatus("Preparando una nueva foto directamente...");
+        scheduleDirectPhotoMode(360);
     }
 
     private void cycleRatioMode() {
@@ -757,8 +771,9 @@ public class MainActivity extends Activity implements SensorEventListener {
             }
             session.resume();
             surfaceView.onResume();
+            scheduleDirectPhotoMode(650);
         } catch (UnavailableArcoreNotInstalledException | UnavailableUserDeclinedInstallationException e) {
-            setStatus("ARCore no está instalado. Instala Servicios de Google Play para RA.");
+            setStatus("La cámara interna necesita Servicios de Google Play para RA.");
         } catch (UnavailableApkTooOldException e) {
             setStatus("Actualiza Servicios de Google Play para RA.");
         } catch (UnavailableSdkTooOldException e) {
@@ -768,7 +783,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         } catch (CameraNotAvailableException e) {
             setStatus("La cámara está ocupada. Cierra otras apps y reabre Camson Mag.");
         } catch (Exception e) {
-            setStatus("No se pudo iniciar AR: " + e.getMessage());
+            setStatus("No se pudo iniciar la cámara: " + e.getMessage());
         }
         if (sensorManager != null) {
             if (accelerometer != null) sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
@@ -800,7 +815,11 @@ public class MainActivity extends Activity implements SensorEventListener {
         super.onRequestPermissionsResult(requestCode, permissions, grants);
         if (requestCode == 17) {
             hasCameraPermission = grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED;
-            if (!hasCameraPermission) setStatus("Permiso de cámara denegado.");
+            if (!hasCameraPermission) {
+                setStatus("Permiso de cámara denegado.");
+            } else {
+                scheduleDirectPhotoMode(650);
+            }
         }
     }
 
@@ -830,16 +849,8 @@ public class MainActivity extends Activity implements SensorEventListener {
             vibrate(18);
             return;
         }
-        if (!renderer.isMappingReady()) {
-            renderer.setSpraying(false);
-            setStatus(renderer.mappingHint());
-            modeBadge.setText("MAPEANDO");
-            vibrate(18);
-            return;
-        }
-        renderer.setSpraying(true);
-        modeBadge.setText("PSSSSHHH");
-        vibrate(18);
+        scheduleDirectPhotoMode(120);
+        return;
     }
 
     private void stopSpray() {
@@ -848,8 +859,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             modeBadge.setText("FOTO");
             return;
         }
-        renderer.setSpraying(false);
-        modeBadge.setText(renderer.isMappingReady() ? "VOL = SPRAY" : "MAPEANDO");
+        // En la pantalla principal ya no hay spray AR: volumen captura foto.
     }
 
     private void setStatus(String text) {
@@ -862,7 +872,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private void setSprayEnabled(boolean enabled) {
         runOnUiThread(() -> {
-            if (sprayButton != null) {
+            if (sprayButton != null && photoModeActive) {
                 sprayButton.setEnabled(enabled);
                 sprayButton.setAlpha(enabled ? 1f : 0.55f);
                 sprayButton.setText(enabled ? "SPRAY" : "SCAN");
@@ -871,19 +881,9 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
 
     private void updateMappingUi(int percent, boolean ready, String message) {
+        if (!photoModeActive) return;
         runOnUiThread(() -> {
-            statusText.setText(message);
-            if (ready) {
-                modeBadge.setText("VOL = SPRAY");
-                if (crossView != null) crossView.setTextColor(Color.rgb(182,255,53));
-                setSprayEnabled(true);
-            } else {
-                modeBadge.setText("MAP " + percent + "%");
-                if (crossView != null) {
-                    crossView.setTextColor(percent >= 70 ? Color.rgb(255,228,94) : Color.argb(210,255,255,255));
-                }
-                setSprayEnabled(false);
-            }
+            if (statusText != null) statusText.setText("Modo foto activo.");
         });
     }
 
@@ -895,14 +895,9 @@ public class MainActivity extends Activity implements SensorEventListener {
             vibrate(90);
             return;
         }
-        renderer.reloadCan();
         updatePaint(100);
-        if (renderer.isMappingReady()) {
-            setStatus("LATA RECARGADA. Listo para pintar.");
-        } else {
-            setStatus("LATA RECARGADA. Sigue mapeando el entorno.");
-        }
-        vibrate(90);
+        setStatus("Listo. Congela una foto para pintar encima.");
+        vibrate(70);
     }
 
     private void vibrate(long ms) {
