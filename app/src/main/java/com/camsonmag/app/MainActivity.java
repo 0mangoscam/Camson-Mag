@@ -17,6 +17,8 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraManager;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
@@ -94,6 +96,15 @@ public class MainActivity extends Activity implements SensorEventListener {
     private Button photoButton;
     private Button sprayButton;
     private Button styleButton;
+    private TextView mainRatioChip;
+    private TextView mainFlashChip;
+    private TextView photoRatioChip;
+    private TextView photoFlashChip;
+    private int ratioModeIndex = 0;
+    private int flashModeIndex = 0;
+    private boolean torchOn = false;
+    private final String[] ratioLabels = new String[] { "3:4", "1:1", "9:16", "FULL" };
+    private final String[] flashLabels = new String[] { "⚡A", "⚡ON", "⚡OFF" };
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
@@ -142,11 +153,14 @@ public class MainActivity extends Activity implements SensorEventListener {
         topBar.setGravity(Gravity.CENTER_VERTICAL);
         topBar.setPadding(dp(10), dp(6), dp(10), dp(6));
         topBar.setBackground(pill(Color.argb(130,0,0,0), Color.argb(45,255,255,255), dp(22)));
-        TextView ratioChip = topText("3:4");
-        TextView flashChip = topText("⚡A");
+        mainRatioChip = topText(ratioLabels[ratioModeIndex]);
+        mainFlashChip = topText(flashLabels[flashModeIndex]);
         TextView menuChip = topText("⋮");
-        topBar.addView(ratioChip, new LinearLayout.LayoutParams(dp(54), dp(34)));
-        topBar.addView(flashChip, new LinearLayout.LayoutParams(dp(54), dp(34)));
+        mainRatioChip.setOnClickListener(v -> cycleRatioMode());
+        mainFlashChip.setOnClickListener(v -> cycleFlashMode());
+        menuChip.setOnClickListener(v -> setStatus("Menú pronto: guardados, capas y ajustes finos."));
+        topBar.addView(mainRatioChip, new LinearLayout.LayoutParams(dp(58), dp(34)));
+        topBar.addView(mainFlashChip, new LinearLayout.LayoutParams(dp(66), dp(34)));
         topBar.addView(menuChip, new LinearLayout.LayoutParams(dp(42), dp(34)));
         FrameLayout.LayoutParams topBarLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
         topBarLp.topMargin = dp(18);
@@ -282,6 +296,8 @@ public class MainActivity extends Activity implements SensorEventListener {
         FrameLayout overlay = new FrameLayout(this);
         overlay.setBackgroundColor(Color.BLACK);
         PhotoSprayView canvas = new PhotoSprayView(this, bitmap);
+        canvas.setRatioMode(ratioModeIndex);
+        canvas.setFlashVisual(flashModeIndex == 1);
         activePhotoView = canvas;
         photoModeActive = true;
         overlay.addView(canvas, new FrameLayout.LayoutParams(-1, -1));
@@ -298,10 +314,18 @@ public class MainActivity extends Activity implements SensorEventListener {
         appIcon.setBackground(pill(Color.argb(120,0,0,0), Color.argb(90,255,255,255), dp(10)));
         appIcon.setPadding(dp(3), dp(3), dp(3), dp(3));
         topBar.addView(appIcon, new LinearLayout.LayoutParams(dp(48), dp(48)));
-        topBar.addView(topText("⌄"), new LinearLayout.LayoutParams(dp(42), dp(48)));
-        topBar.addView(topText("3:4"), new LinearLayout.LayoutParams(dp(62), dp(48)));
-        topBar.addView(topText("⚡A"), new LinearLayout.LayoutParams(dp(62), dp(48)));
-        topBar.addView(topText("⋮"), new LinearLayout.LayoutParams(dp(42), dp(48)));
+        TextView collapseChip = topText("⌄");
+        photoRatioChip = topText(ratioLabels[ratioModeIndex]);
+        photoFlashChip = topText(flashLabels[flashModeIndex]);
+        TextView moreChip = topText("⋮");
+        collapseChip.setOnClickListener(v -> setStatus("Usa OBRA para ocultar el hub y pintar limpio."));
+        photoRatioChip.setOnClickListener(v -> cycleRatioMode());
+        photoFlashChip.setOnClickListener(v -> cycleFlashMode());
+        moreChip.setOnClickListener(v -> setStatus("Ajustes finos pronto: capas, opacidad y presión."));
+        topBar.addView(collapseChip, new LinearLayout.LayoutParams(dp(42), dp(48)));
+        topBar.addView(photoRatioChip, new LinearLayout.LayoutParams(dp(66), dp(48)));
+        topBar.addView(photoFlashChip, new LinearLayout.LayoutParams(dp(70), dp(48)));
+        topBar.addView(moreChip, new LinearLayout.LayoutParams(dp(42), dp(48)));
         FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
         topLp.topMargin = dp(14);
         overlay.addView(topBar, topLp);
@@ -480,9 +504,81 @@ public class MainActivity extends Activity implements SensorEventListener {
         photoModeActive = false;
         colorButton.setText("BOQ");
         if (styleButton != null) styleButton.setText("SENS");
+        photoRatioChip = null;
+        photoFlashChip = null;
+        updateRatioUi();
+        updateFlashUi();
         updatePaint(100);
         modeBadge.setText(renderer != null && renderer.isMappingReady() ? "VOL = SPRAY" : "MAPEANDO");
         setStatus("Has vuelto al modo AR. Usa FOTO cuando quieras congelar la escena y pintar sin tracking.");
+    }
+
+    private void cycleRatioMode() {
+        ratioModeIndex = (ratioModeIndex + 1) % ratioLabels.length;
+        updateRatioUi();
+        if (activePhotoView != null) activePhotoView.setRatioMode(ratioModeIndex);
+        setStatus("Formato de lienzo: " + ratioLabels[ratioModeIndex] + ".");
+        vibrate(18);
+    }
+
+    private void updateRatioUi() {
+        String label = ratioLabels[Math.max(0, Math.min(ratioLabels.length - 1, ratioModeIndex))];
+        if (mainRatioChip != null) mainRatioChip.setText(label);
+        if (photoRatioChip != null) photoRatioChip.setText(label);
+    }
+
+    private float currentRatioAspect() {
+        switch (ratioModeIndex) {
+            case 0: return 3f / 4f;
+            case 1: return 1f;
+            case 2: return 9f / 16f;
+            default: return 0f;
+        }
+    }
+
+    private void cycleFlashMode() {
+        flashModeIndex = (flashModeIndex + 1) % flashLabels.length;
+        updateFlashUi();
+        applyFlashMode();
+        if (activePhotoView != null) activePhotoView.setFlashVisual(flashModeIndex == 1);
+        setStatus(flashModeIndex == 1 ? "Flash activo: linterna si Android la permite y brillo visual sobre el lienzo." : flashModeIndex == 2 ? "Flash apagado." : "Flash automático preparado.");
+        vibrate(18);
+    }
+
+    private void updateFlashUi() {
+        String label = flashLabels[Math.max(0, Math.min(flashLabels.length - 1, flashModeIndex))];
+        if (mainFlashChip != null) mainFlashChip.setText(label);
+        if (photoFlashChip != null) photoFlashChip.setText(label);
+    }
+
+    private void applyFlashMode() {
+        boolean wantTorch = flashModeIndex == 1;
+        setTorchEnabled(wantTorch);
+        try {
+            WindowManager.LayoutParams lp = getWindow().getAttributes();
+            lp.screenBrightness = wantTorch ? 1.0f : WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+            getWindow().setAttributes(lp);
+        } catch (Exception ignored) {}
+    }
+
+    private void setTorchEnabled(boolean enabled) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+        try {
+            CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+            if (manager == null) return;
+            for (String id : manager.getCameraIdList()) {
+                CameraCharacteristics c = manager.getCameraCharacteristics(id);
+                Integer facing = c.get(CameraCharacteristics.LENS_FACING);
+                Boolean flash = c.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+                if (facing != null && facing == CameraCharacteristics.LENS_FACING_BACK && flash != null && flash) {
+                    manager.setTorchMode(id, enabled);
+                    torchOn = enabled;
+                    return;
+                }
+            }
+        } catch (Exception ignored) {
+            torchOn = false;
+        }
     }
 
     private void saveBitmapToDownloads(Bitmap bitmap, String filename) throws Exception {
@@ -651,6 +747,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     @Override
     protected void onPause() {
         super.onPause();
+        setTorchEnabled(false);
         surfaceView.onPause();
         if (session != null) session.pause();
         if (sensorManager != null) sensorManager.unregisterListener(this);
@@ -659,6 +756,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        setTorchEnabled(false);
         if (session != null) {
             session.close();
             session = null;
@@ -836,7 +934,12 @@ public class MainActivity extends Activity implements SensorEventListener {
         private final Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint crossPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF dest = new RectF();
+        private final RectF aimBounds = new RectF();
+        private final Paint dimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint flashPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
+        private int ratioMode = 0;
+        private boolean flashVisual = false;
         private int colorIndex = 0;
         private int sprayStyleIndex = 0;
         private float aimX = -1f, aimY = -1f;
@@ -907,9 +1010,24 @@ public class MainActivity extends Activity implements SensorEventListener {
             invalidate();
         }
 
+        void setRatioMode(int index) {
+            ratioMode = Math.max(0, Math.min(ratioLabels.length - 1, index));
+            updateContentRect();
+            clampAimToContent();
+            invalidate();
+        }
+
+        void setFlashVisual(boolean enabled) {
+            flashVisual = enabled;
+            invalidate();
+        }
+
         void centerAim() {
-            aimX = getWidth() > 0 ? getWidth() * 0.5f : aimX;
-            aimY = getHeight() > 0 ? getHeight() * 0.5f : aimY;
+            updateContentRect();
+            if (getWidth() > 0 && getHeight() > 0) {
+                aimX = aimBounds.centerX();
+                aimY = aimBounds.centerY();
+            }
             targetAimX = aimX;
             targetAimY = aimY;
             smoothTiltX = 0f;
@@ -1050,9 +1168,10 @@ public class MainActivity extends Activity implements SensorEventListener {
             targetAimX += moveX * speed * boost * dt;
             targetAimY += moveY * speed * boost * dt;
 
+            updateContentRect();
             float margin = dp(24);
-            targetAimX = clamp(targetAimX, margin, getWidth() - margin);
-            targetAimY = clamp(targetAimY, margin, getHeight() - margin);
+            targetAimX = clamp(targetAimX, aimBounds.left + margin, aimBounds.right - margin);
+            targetAimY = clamp(targetAimY, aimBounds.top + margin, aimBounds.bottom - margin);
 
             aimX = aimX * 0.74f + targetAimX * 0.26f;
             aimY = aimY * 0.74f + targetAimY * 0.26f;
@@ -1084,10 +1203,11 @@ public class MainActivity extends Activity implements SensorEventListener {
 
             float nx = clamp(smoothTiltX / 5.0f, -1f, 1f);
             float ny = clamp(smoothTiltY / 5.0f, -1f, 1f);
-            targetAimX = getWidth() * (0.5f + nx * 0.34f);
-            targetAimY = getHeight() * (0.5f + ny * 0.34f);
-            targetAimX = clamp(targetAimX, dp(24), getWidth() - dp(24));
-            targetAimY = clamp(targetAimY, dp(24), getHeight() - dp(24));
+            updateContentRect();
+            targetAimX = aimBounds.centerX() + nx * aimBounds.width() * 0.34f;
+            targetAimY = aimBounds.centerY() + ny * aimBounds.height() * 0.34f;
+            targetAimX = clamp(targetAimX, aimBounds.left + dp(24), aimBounds.right - dp(24));
+            targetAimY = clamp(targetAimY, aimBounds.top + dp(24), aimBounds.bottom - dp(24));
             aimX = aimX * 0.86f + targetAimX * 0.14f;
             aimY = aimY * 0.86f + targetAimY * 0.14f;
             postInvalidateOnAnimation();
@@ -1106,22 +1226,81 @@ public class MainActivity extends Activity implements SensorEventListener {
             if (w > 0 && h > 0) {
                 strokesBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
                 strokesCanvas = new Canvas(strokesBitmap);
+                updateContentRect();
                 if (aimX < 0 || aimY < 0) {
-                    aimX = w * 0.5f;
-                    aimY = h * 0.5f;
+                    aimX = aimBounds.centerX();
+                    aimY = aimBounds.centerY();
                     targetAimX = aimX;
                     targetAimY = aimY;
                 }
+                clampAimToContent();
             }
         }
 
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            dest.set(0, 0, getWidth(), getHeight());
+            updateContentRect();
+            canvas.drawColor(Color.BLACK);
             canvas.drawBitmap(baseBitmap, null, dest, imagePaint);
+            if (flashVisual) {
+                flashPaint.setStyle(Paint.Style.FILL);
+                flashPaint.setColor(Color.argb(34, 255, 244, 218));
+                canvas.drawRect(dest, flashPaint);
+            }
             if (strokesBitmap != null) canvas.drawBitmap(strokesBitmap, 0, 0, null);
+            drawRatioMask(canvas);
             drawCrosshair(canvas);
+        }
+
+        private void updateContentRect() {
+            float w = Math.max(1, getWidth());
+            float h = Math.max(1, getHeight());
+            float aspect;
+            switch (ratioMode) {
+                case 0: aspect = 3f / 4f; break;
+                case 1: aspect = 1f; break;
+                case 2: aspect = 9f / 16f; break;
+                default: aspect = 0f; break;
+            }
+            if (aspect <= 0f) {
+                dest.set(0, 0, w, h);
+            } else {
+                float targetW = w;
+                float targetH = targetW / aspect;
+                if (targetH > h) {
+                    targetH = h;
+                    targetW = targetH * aspect;
+                }
+                float left = (w - targetW) * 0.5f;
+                float top = (h - targetH) * 0.5f;
+                dest.set(left, top, left + targetW, top + targetH);
+            }
+            aimBounds.set(dest);
+        }
+
+        private void clampAimToContent() {
+            if (getWidth() <= 0 || getHeight() <= 0) return;
+            updateContentRect();
+            float margin = dp(24);
+            aimX = clamp(aimX, aimBounds.left + margin, aimBounds.right - margin);
+            aimY = clamp(aimY, aimBounds.top + margin, aimBounds.bottom - margin);
+            targetAimX = clamp(targetAimX, aimBounds.left + margin, aimBounds.right - margin);
+            targetAimY = clamp(targetAimY, aimBounds.top + margin, aimBounds.bottom - margin);
+        }
+
+        private void drawRatioMask(Canvas canvas) {
+            if (ratioMode == 3) return;
+            dimPaint.setStyle(Paint.Style.FILL);
+            dimPaint.setColor(Color.argb(studioMode ? 92 : 64, 0, 0, 0));
+            canvas.drawRect(0, 0, getWidth(), dest.top, dimPaint);
+            canvas.drawRect(0, dest.bottom, getWidth(), getHeight(), dimPaint);
+            canvas.drawRect(0, dest.top, dest.left, dest.bottom, dimPaint);
+            canvas.drawRect(dest.right, dest.top, getWidth(), dest.bottom, dimPaint);
+            crossPaint.setStyle(Paint.Style.STROKE);
+            crossPaint.setStrokeWidth(dp(1.2f));
+            crossPaint.setColor(Color.argb(120,255,255,255));
+            canvas.drawRect(dest, crossPaint);
         }
 
         private void drawCrosshair(Canvas canvas) {
