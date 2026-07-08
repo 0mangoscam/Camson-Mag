@@ -96,6 +96,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
+    private Sensor gyroscope;
     private long lastShake = 0;
     private float lastX, lastY, lastZ;
     private boolean hasLast = false;
@@ -125,7 +126,10 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         installRequested = false;
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
-        if (sensorManager != null) accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        if (sensorManager != null) {
+            accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+            gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+        }
     }
 
     private View makeHud() {
@@ -289,7 +293,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         overlay.addView(title, titleLp);
 
         TextView hint = new TextView(this);
-        hint.setText("Al entrar la mira se queda centrada. Mueve el móvil suavemente para apuntar y usa TIPO para cambiar boquilla.");
+        hint.setText("Ahora apunta con giroscopio real. CENTRO recalibra la mira y SENS cambia la velocidad.");
         hint.setTextColor(Color.WHITE);
         hint.setTextSize(12);
         hint.setGravity(Gravity.CENTER);
@@ -308,26 +312,42 @@ public class MainActivity extends Activity implements SensorEventListener {
         overlay.addView(obra, obraLp);
 
         LinearLayout controls = new LinearLayout(this);
-        controls.setOrientation(LinearLayout.HORIZONTAL);
+        controls.setOrientation(LinearLayout.VERTICAL);
         controls.setGravity(Gravity.CENTER);
         controls.setPadding(dp(8), dp(8), dp(8), dp(8));
+        LinearLayout rowTools = new LinearLayout(this);
+        rowTools.setOrientation(LinearLayout.HORIZONTAL);
+        rowTools.setGravity(Gravity.CENTER);
+        LinearLayout rowActions = new LinearLayout(this);
+        rowActions.setOrientation(LinearLayout.HORIZONTAL);
+        rowActions.setGravity(Gravity.CENTER);
         Button save = hudButton("GUARDAR", Color.rgb(182,255,53), Color.BLACK);
         Button color = hudButton("COLOR", Color.rgb(92,232,255), Color.BLACK);
         Button style = hudButton("TIPO", Color.rgb(255,228,94), Color.BLACK);
+        Button sens = hudButton("SENS", Color.rgb(245,238,224), Color.BLACK);
+        Button axes = hudButton("EJES", Color.rgb(245,238,224), Color.BLACK);
+        Button center = hudButton("CENTRO", Color.rgb(245,238,224), Color.BLACK);
         Button spray = hudButton("SPRAY", Color.rgb(255,79,216), Color.WHITE);
         Button clear = hudButton("LIMPIAR", Color.rgb(255,48,48), Color.WHITE);
         Button exit = hudButton("SALIR", Color.rgb(20,20,20), Color.WHITE);
-        controls.addView(save, new LinearLayout.LayoutParams(0, dp(58), 1));
-        controls.addView(color, new LinearLayout.LayoutParams(0, dp(58), 1));
-        controls.addView(style, new LinearLayout.LayoutParams(0, dp(58), 1));
-        controls.addView(spray, new LinearLayout.LayoutParams(0, dp(58), 1));
-        controls.addView(clear, new LinearLayout.LayoutParams(0, dp(58), 1));
-        controls.addView(exit, new LinearLayout.LayoutParams(0, dp(58), 1));
+        rowTools.addView(color, new LinearLayout.LayoutParams(0, dp(52), 1));
+        rowTools.addView(style, new LinearLayout.LayoutParams(0, dp(52), 1));
+        rowTools.addView(sens, new LinearLayout.LayoutParams(0, dp(52), 1));
+        rowTools.addView(axes, new LinearLayout.LayoutParams(0, dp(52), 1));
+        rowTools.addView(center, new LinearLayout.LayoutParams(0, dp(52), 1));
+        rowActions.addView(save, new LinearLayout.LayoutParams(0, dp(58), 1));
+        rowActions.addView(spray, new LinearLayout.LayoutParams(0, dp(58), 1));
+        rowActions.addView(clear, new LinearLayout.LayoutParams(0, dp(58), 1));
+        rowActions.addView(exit, new LinearLayout.LayoutParams(0, dp(58), 1));
+        controls.addView(rowTools, new LinearLayout.LayoutParams(-1, -2));
+        controls.addView(rowActions, new LinearLayout.LayoutParams(-1, -2));
         FrameLayout.LayoutParams controlsLp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
         controlsLp.bottomMargin = dp(10);
         overlay.addView(controls, controlsLp);
         color.setText(canvas.colorName());
         style.setText(canvas.sprayStyleName());
+        sens.setText(canvas.sensitivityName());
+        axes.setText(canvas.axisModeName());
 
         save.setOnClickListener(v -> {
             try {
@@ -352,6 +372,23 @@ public class MainActivity extends Activity implements SensorEventListener {
             if (styleButton != null) styleButton.setText(styleName);
             setStatus("Boquilla de foto: " + styleName + ".");
             vibrate(20);
+        });
+        sens.setOnClickListener(v -> {
+            canvas.nextSensitivity();
+            sens.setText(canvas.sensitivityName());
+            setStatus("Sensibilidad del giroscopio: " + canvas.sensitivityName() + ".");
+            vibrate(18);
+        });
+        axes.setOnClickListener(v -> {
+            canvas.nextAxisMode();
+            axes.setText(canvas.axisModeName());
+            setStatus("Ejes del giroscopio: " + canvas.axisModeName() + ". Si la mira va al revés, pulsa EJES otra vez.");
+            vibrate(18);
+        });
+        center.setOnClickListener(v -> {
+            canvas.centerAim();
+            setStatus("Mira recentrada. Ahora esta posición es tu punto cómodo.");
+            vibrate(30);
         });
         spray.setOnTouchListener((v, e) -> {
             if (e.getAction() == MotionEvent.ACTION_DOWN) {
@@ -387,7 +424,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         colorButton.setText(canvas.colorName());
         if (styleButton != null) styleButton.setText(canvas.sprayStyleName());
         updatePaint(canvas.paintPercent());
-        setStatus("Modo foto activo. Mueve el móvil para apuntar y pulsa volumen o SPRAY para pintar la foto.");
+        setStatus("Modo foto activo. Apunta con el giroscopio. Usa CENTRO para recentrar, SENS para velocidad y EJES si está invertido.");
     }
 
     private void closePhotoMode() {
@@ -504,7 +541,10 @@ public class MainActivity extends Activity implements SensorEventListener {
         } catch (Exception e) {
             setStatus("No se pudo iniciar AR: " + e.getMessage());
         }
-        if (sensorManager != null && accelerometer != null) sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
+        if (sensorManager != null) {
+            if (accelerometer != null) sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
+            if (gyroscope != null) sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_GAME);
+        }
     }
 
     @Override
@@ -555,7 +595,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         if (photoModeActive && activePhotoView != null) {
             activePhotoView.setSpraying(true);
             modeBadge.setText("FOTO SPRAY");
-            setStatus("Spray activo. El centro se calibró al entrar en modo foto; mueve el móvil suave para apuntar.");
+            setStatus("Spray activo. Apunta con el giroscopio; usa CENTRO si la mira se escapa.");
             vibrate(18);
             return;
         }
@@ -659,19 +699,29 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @Override
     public void onSensorChanged(SensorEvent event) {
-        float x = event.values[0], y = event.values[1], z = event.values[2];
-        if (photoModeActive && activePhotoView != null) {
-            int rotation = getWindowManager().getDefaultDisplay().getRotation();
-            activePhotoView.updateTiltAim(x, y, z, rotation);
+        if (event.sensor != null && event.sensor.getType() == Sensor.TYPE_GYROSCOPE) {
+            if (photoModeActive && activePhotoView != null) {
+                int rotation = getWindowManager().getDefaultDisplay().getRotation();
+                activePhotoView.updateGyroAim(event.values[0], event.values[1], event.values[2], event.timestamp, rotation);
+            }
+            return;
         }
-        if (!hasLast) { lastX = x; lastY = y; lastZ = z; hasLast = true; return; }
-        float dx = x - lastX, dy = y - lastY, dz = z - lastZ;
-        lastX = x; lastY = y; lastZ = z;
-        float force = (float)Math.sqrt(dx*dx + dy*dy + dz*dz);
-        long now = System.currentTimeMillis();
-        if (force > 18.5f && now - lastShake > 900) {
-            lastShake = now;
-            reloadCan();
+
+        if (event.sensor != null && event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
+            float x = event.values[0], y = event.values[1], z = event.values[2];
+            if (photoModeActive && activePhotoView != null && gyroscope == null) {
+                int rotation = getWindowManager().getDefaultDisplay().getRotation();
+                activePhotoView.updateTiltAimFallback(x, y, z, rotation);
+            }
+            if (!hasLast) { lastX = x; lastY = y; lastZ = z; hasLast = true; return; }
+            float dx = x - lastX, dy = y - lastY, dz = z - lastZ;
+            lastX = x; lastY = y; lastZ = z;
+            float force = (float)Math.sqrt(dx*dx + dy*dy + dz*dz);
+            long now = System.currentTimeMillis();
+            if (force > 18.5f && now - lastShake > 900) {
+                lastShake = now;
+                reloadCan();
+            }
         }
     }
     @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
@@ -698,6 +748,13 @@ public class MainActivity extends Activity implements SensorEventListener {
         private float smoothTiltX = 0f, smoothTiltY = 0f;
         private boolean tiltCalibrated = false;
         private float baseTiltX = 0f, baseTiltY = 0f;
+        private float targetAimX = -1f, targetAimY = -1f;
+        private long lastGyroTimestamp = 0L;
+        private int sensitivityIndex = 1;
+        private int axisModeIndex = 0;
+        private final float[] sensitivityValues = new float[] { 760f, 1180f, 1680f };
+        private final String[] sensitivityNames = new String[] { "PRECISO", "NORMAL", "RAPIDO" };
+        private final String[] axisModeNames = new String[] { "EJES A", "EJES B", "EJES C", "EJES D" };
 
         private final int[] colors = new int[] {
                 Color.rgb(182,255,53),
@@ -747,6 +804,36 @@ public class MainActivity extends Activity implements SensorEventListener {
         void setStudioMode(boolean enabled) {
             studioMode = enabled;
             invalidate();
+        }
+
+        void centerAim() {
+            aimX = getWidth() > 0 ? getWidth() * 0.5f : aimX;
+            aimY = getHeight() > 0 ? getHeight() * 0.5f : aimY;
+            targetAimX = aimX;
+            targetAimY = aimY;
+            smoothTiltX = 0f;
+            smoothTiltY = 0f;
+            lastGyroTimestamp = 0L;
+            tiltCalibrated = false;
+            hasSprayTrail = false;
+            invalidate();
+        }
+
+        void nextSensitivity() {
+            sensitivityIndex = (sensitivityIndex + 1) % sensitivityNames.length;
+        }
+
+        String sensitivityName() {
+            return sensitivityNames[sensitivityIndex];
+        }
+
+        void nextAxisMode() {
+            axisModeIndex = (axisModeIndex + 1) % axisModeNames.length;
+            lastGyroTimestamp = 0L;
+        }
+
+        String axisModeName() {
+            return axisModeNames[axisModeIndex];
         }
 
         void setSpraying(boolean value) {
@@ -799,7 +886,67 @@ public class MainActivity extends Activity implements SensorEventListener {
             return out;
         }
 
-        void updateTiltAim(float x, float y, float z, int rotation) {
+        void updateGyroAim(float gx, float gy, float gz, long timestamp, int rotation) {
+            if (getWidth() <= 0 || getHeight() <= 0) return;
+            if (aimX < 0 || aimY < 0) centerAim();
+            if (targetAimX < 0 || targetAimY < 0) {
+                targetAimX = aimX;
+                targetAimY = aimY;
+            }
+
+            if (lastGyroTimestamp == 0L) {
+                lastGyroTimestamp = timestamp;
+                return;
+            }
+
+            float dt = (timestamp - lastGyroTimestamp) * 1.0e-9f;
+            lastGyroTimestamp = timestamp;
+            if (dt <= 0f) return;
+            if (dt > 0.045f) dt = 0.045f;
+
+            float moveX;
+            float moveY;
+            switch (rotation) {
+                case 1:
+                    moveX = -gx;
+                    moveY = -gy;
+                    break;
+                case 2:
+                    moveX = gy;
+                    moveY = gx;
+                    break;
+                case 3:
+                    moveX = gx;
+                    moveY = gy;
+                    break;
+                default:
+                    moveX = -gy;
+                    moveY = gx;
+                    break;
+            }
+
+            if (axisModeIndex == 1 || axisModeIndex == 3) moveX = -moveX;
+            if (axisModeIndex == 2 || axisModeIndex == 3) moveY = -moveY;
+
+            float dead = 0.018f;
+            if (Math.abs(moveX) < dead) moveX = 0f;
+            if (Math.abs(moveY) < dead) moveY = 0f;
+
+            float speed = sensitivityValues[sensitivityIndex];
+            float boost = spraying ? 0.72f : 1.0f;
+            targetAimX += moveX * speed * boost * dt;
+            targetAimY += moveY * speed * boost * dt;
+
+            float margin = dp(24);
+            targetAimX = clamp(targetAimX, margin, getWidth() - margin);
+            targetAimY = clamp(targetAimY, margin, getHeight() - margin);
+
+            aimX = aimX * 0.74f + targetAimX * 0.26f;
+            aimY = aimY * 0.74f + targetAimY * 0.26f;
+            postInvalidateOnAnimation();
+        }
+
+        void updateTiltAimFallback(float x, float y, float z, int rotation) {
             if (getWidth() <= 0 || getHeight() <= 0) return;
             float tx, ty;
             switch (rotation) {
@@ -812,26 +959,24 @@ public class MainActivity extends Activity implements SensorEventListener {
             if (!tiltCalibrated) {
                 baseTiltX = tx;
                 baseTiltY = ty;
-                smoothTiltX = 0f;
-                smoothTiltY = 0f;
+                centerAim();
                 tiltCalibrated = true;
-                aimX = getWidth() * 0.5f;
-                aimY = getHeight() * 0.5f;
-                postInvalidateOnAnimation();
                 return;
             }
 
             float relX = tx - baseTiltX;
             float relY = ty - baseTiltY;
-            smoothTiltX = smoothTiltX * 0.91f + relX * 0.09f;
-            smoothTiltY = smoothTiltY * 0.91f + relY * 0.09f;
+            smoothTiltX = smoothTiltX * 0.94f + relX * 0.06f;
+            smoothTiltY = smoothTiltY * 0.94f + relY * 0.06f;
 
-            float nx = clamp(smoothTiltX / 4.2f, -1f, 1f);
-            float ny = clamp(smoothTiltY / 4.2f, -1f, 1f);
-            aimX = getWidth() * (0.5f + nx * 0.37f);
-            aimY = getHeight() * (0.5f + ny * 0.37f);
-            aimX = clamp(aimX, dp(24), getWidth() - dp(24));
-            aimY = clamp(aimY, dp(24), getHeight() - dp(24));
+            float nx = clamp(smoothTiltX / 5.0f, -1f, 1f);
+            float ny = clamp(smoothTiltY / 5.0f, -1f, 1f);
+            targetAimX = getWidth() * (0.5f + nx * 0.34f);
+            targetAimY = getHeight() * (0.5f + ny * 0.34f);
+            targetAimX = clamp(targetAimX, dp(24), getWidth() - dp(24));
+            targetAimY = clamp(targetAimY, dp(24), getHeight() - dp(24));
+            aimX = aimX * 0.86f + targetAimX * 0.14f;
+            aimY = aimY * 0.86f + targetAimY * 0.14f;
             postInvalidateOnAnimation();
         }
 
@@ -851,6 +996,8 @@ public class MainActivity extends Activity implements SensorEventListener {
                 if (aimX < 0 || aimY < 0) {
                     aimX = w * 0.5f;
                     aimY = h * 0.5f;
+                    targetAimX = aimX;
+                    targetAimY = aimY;
                 }
             }
         }
