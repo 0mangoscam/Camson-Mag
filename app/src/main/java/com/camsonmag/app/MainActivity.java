@@ -295,6 +295,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         FrameLayout overlay = new FrameLayout(this);
         overlay.setBackgroundColor(Color.BLACK);
+
         PhotoSprayView canvas = new PhotoSprayView(this, bitmap);
         canvas.setRatioMode(ratioModeIndex);
         canvas.setFlashVisual(flashModeIndex == 1);
@@ -302,146 +303,154 @@ public class MainActivity extends Activity implements SensorEventListener {
         photoModeActive = true;
         overlay.addView(canvas, new FrameLayout.LayoutParams(-1, -1));
 
-        LinearLayout topBar = new LinearLayout(this);
-        topBar.setOrientation(LinearLayout.HORIZONTAL);
-        topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setPadding(dp(10), dp(8), dp(10), dp(8));
-        topBar.setBackground(pill(Color.argb(120,0,0,0), Color.argb(42,255,255,255), dp(28)));
+        // Barra superior: icono, flecha, ratio, flash y menú, como en el diseño.
+        FrameLayout topBar = new FrameLayout(this);
+        topBar.setPadding(dp(18), dp(10), dp(18), dp(8));
+        topBar.setBackground(topGlassBar());
+        FrameLayout.LayoutParams topBarLp = new FrameLayout.LayoutParams(-1, dp(88), Gravity.TOP);
+        overlay.addView(topBar, topBarLp);
 
         ImageView appIcon = new ImageView(this);
         int iconId = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName());
         if (iconId != 0) appIcon.setImageResource(iconId);
-        appIcon.setBackground(pill(Color.argb(120,0,0,0), Color.argb(90,255,255,255), dp(10)));
         appIcon.setPadding(dp(3), dp(3), dp(3), dp(3));
-        topBar.addView(appIcon, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        appIcon.setBackground(pill(Color.argb(155,10,10,12), Color.argb(95,255,255,255), dp(12)));
+        FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(dp(50), dp(50), Gravity.START | Gravity.CENTER_VERTICAL);
+        iconLp.leftMargin = dp(2);
+        topBar.addView(appIcon, iconLp);
+
         TextView collapseChip = topText("⌄");
+        collapseChip.setTextSize(30);
+        collapseChip.setOnClickListener(v -> closePhotoMode());
+        FrameLayout.LayoutParams collapseLp = new FrameLayout.LayoutParams(dp(50), dp(50), Gravity.START | Gravity.CENTER_VERTICAL);
+        collapseLp.leftMargin = dp(70);
+        topBar.addView(collapseChip, collapseLp);
+
         photoRatioChip = topText(ratioLabels[ratioModeIndex]);
-        photoFlashChip = topText(flashLabels[flashModeIndex]);
-        TextView moreChip = topText("⋮");
-        collapseChip.setOnClickListener(v -> setStatus("Usa OBRA para ocultar el hub y pintar limpio."));
+        photoRatioChip.setTextSize(18);
+        photoRatioChip.setBackground(pill(Color.argb(42,0,0,0), Color.argb(220,255,255,255), dp(6)));
         photoRatioChip.setOnClickListener(v -> cycleRatioMode());
+        FrameLayout.LayoutParams ratioLp = new FrameLayout.LayoutParams(dp(58), dp(42), Gravity.CENTER);
+        topBar.addView(photoRatioChip, ratioLp);
+
+        LinearLayout rightTop = new LinearLayout(this);
+        rightTop.setOrientation(LinearLayout.HORIZONTAL);
+        rightTop.setGravity(Gravity.CENTER_VERTICAL);
+        photoFlashChip = topText(flashLabels[flashModeIndex]);
+        photoFlashChip.setTextSize(22);
         photoFlashChip.setOnClickListener(v -> cycleFlashMode());
-        moreChip.setOnClickListener(v -> setStatus("Ajustes finos pronto: capas, opacidad y presión."));
-        topBar.addView(collapseChip, new LinearLayout.LayoutParams(dp(42), dp(48)));
-        topBar.addView(photoRatioChip, new LinearLayout.LayoutParams(dp(66), dp(48)));
-        topBar.addView(photoFlashChip, new LinearLayout.LayoutParams(dp(70), dp(48)));
-        topBar.addView(moreChip, new LinearLayout.LayoutParams(dp(42), dp(48)));
-        FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        topLp.topMargin = dp(14);
-        overlay.addView(topBar, topLp);
+        TextView moreChip = topText("⋮");
+        moreChip.setTextSize(32);
+        moreChip.setOnClickListener(v -> setStatus("Menú pronto: capas, galería y ajustes del hub."));
+        rightTop.addView(photoFlashChip, new LinearLayout.LayoutParams(dp(70), dp(50)));
+        rightTop.addView(moreChip, new LinearLayout.LayoutParams(dp(44), dp(50)));
+        FrameLayout.LayoutParams rightLp = new FrameLayout.LayoutParams(-2, dp(54), Gravity.END | Gravity.CENTER_VERTICAL);
+        topBar.addView(rightTop, rightLp);
 
-        TextView aimBadge = new TextView(this);
-        aimBadge.setText("GIROSCOPIO · NORMAL");
-        aimBadge.setTextColor(Color.WHITE);
-        aimBadge.setTextSize(11);
-        aimBadge.setGravity(Gravity.CENTER);
-        aimBadge.setPadding(dp(10), dp(6), dp(10), dp(6));
-        aimBadge.setBackground(pill(Color.argb(120,0,0,0), Color.argb(55,255,255,255), dp(18)));
-        FrameLayout.LayoutParams aimLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        aimLp.topMargin = dp(84);
-        overlay.addView(aimBadge, aimLp);
+        // Zoom flotante encima del hub.
+        LinearLayout zoomChip = new LinearLayout(this);
+        zoomChip.setOrientation(LinearLayout.HORIZONTAL);
+        zoomChip.setGravity(Gravity.CENTER);
+        zoomChip.setPadding(dp(8), 0, dp(8), 0);
+        zoomChip.setBackground(pill(Color.argb(205, 10, 10, 12), Color.argb(58,255,255,255), dp(18)));
+        TextView minus = zoomText("−");
+        TextView zoom = zoomText("1.0x");
+        TextView plus = zoomText("+");
+        minus.setOnClickListener(v -> setStatus("Zoom visual pronto: por ahora el lienzo mantiene 1.0x."));
+        plus.setOnClickListener(v -> setStatus("Zoom visual pronto: por ahora el lienzo mantiene 1.0x."));
+        zoomChip.addView(minus, new LinearLayout.LayoutParams(dp(42), dp(36)));
+        zoomChip.addView(zoom, new LinearLayout.LayoutParams(dp(72), dp(36)));
+        zoomChip.addView(plus, new LinearLayout.LayoutParams(dp(42), dp(36)));
+        FrameLayout.LayoutParams zoomLp = new FrameLayout.LayoutParams(-2, dp(38), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        zoomLp.bottomMargin = dp(318);
+        overlay.addView(zoomChip, zoomLp);
 
+        // Panel inferior exacto: arco negro, dial central, Clear/Save, tarjetas y tabs.
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setGravity(Gravity.CENTER);
-        panel.setPadding(dp(14), dp(14), dp(14), dp(12));
+        panel.setPadding(dp(14), dp(14), dp(14), dp(0));
         panel.setBackground(bottomPanel());
+        FrameLayout.LayoutParams panelLp = new FrameLayout.LayoutParams(-1, dp(318), Gravity.BOTTOM);
+        overlay.addView(panel, panelLp);
 
-        LinearLayout toolRow = new LinearLayout(this);
-        toolRow.setOrientation(LinearLayout.HORIZONTAL);
-        toolRow.setGravity(Gravity.CENTER);
-        Button clear = darkToolButton("◌\nClear");
-        Button center = darkToolButton("⌖\nCenter");
-        Button save = darkToolButton("⇩\nSave");
-        Button sens = darkToolButton("⚙\n" + canvas.sensitivityName());
-        toolRow.addView(clear, new LinearLayout.LayoutParams(0, dp(64), 1));
-        toolRow.addView(center, new LinearLayout.LayoutParams(0, dp(64), 1));
-        toolRow.addView(save, new LinearLayout.LayoutParams(0, dp(64), 1));
-        toolRow.addView(sens, new LinearLayout.LayoutParams(0, dp(64), 1));
-        panel.addView(toolRow, new LinearLayout.LayoutParams(-1, -2));
+        FrameLayout upperPanel = new FrameLayout(this);
+        panel.addView(upperPanel, new LinearLayout.LayoutParams(-1, dp(126)));
 
-        TextView sprayDial = new TextView(this);
-        sprayDial.setText("●\nSPRAY READY");
-        sprayDial.setTextColor(Color.rgb(255,136,178));
-        sprayDial.setTextSize(14);
-        sprayDial.setTypeface(Typeface.DEFAULT_BOLD);
-        sprayDial.setGravity(Gravity.CENTER);
-        sprayDial.setPadding(dp(8), dp(8), dp(8), dp(8));
-        sprayDial.setBackground(pill(Color.argb(185,8,8,10), Color.argb(115,255,136,178), dp(54)));
-        FrameLayout.LayoutParams dialLp = new FrameLayout.LayoutParams(dp(132), dp(86));
-        LinearLayout.LayoutParams dialLinearLp = new LinearLayout.LayoutParams(dp(132), dp(86));
-        dialLinearLp.topMargin = dp(6);
-        panel.addView(sprayDial, dialLinearLp);
+        Button clear = roundPanelButton("◌\nClear");
+        FrameLayout.LayoutParams clearLp = new FrameLayout.LayoutParams(dp(88), dp(88), Gravity.START | Gravity.CENTER_VERTICAL);
+        clearLp.leftMargin = dp(42);
+        upperPanel.addView(clear, clearLp);
 
-        TextView activeCap = new TextView(this);
-        activeCap.setText("BOQUILLA · " + canvas.sprayStyleName());
-        activeCap.setTextColor(Color.WHITE);
-        activeCap.setTextSize(12);
-        activeCap.setGravity(Gravity.CENTER);
-        activeCap.setTypeface(Typeface.DEFAULT_BOLD);
-        activeCap.setPadding(dp(6), dp(4), dp(6), dp(4));
-        panel.addView(activeCap, new LinearLayout.LayoutParams(-1, dp(32)));
+        SprayDialView sprayDial = new SprayDialView(this);
+        FrameLayout.LayoutParams dialLp = new FrameLayout.LayoutParams(dp(142), dp(122), Gravity.CENTER);
+        upperPanel.addView(sprayDial, dialLp);
+        sprayDial.setOnTouchListener((v, e) -> {
+            if (e.getAction() == MotionEvent.ACTION_DOWN) { startSpray(); return true; }
+            if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) { stopSpray(); return true; }
+            return true;
+        });
+
+        Button save = roundPanelButton("⇩\nSave");
+        FrameLayout.LayoutParams saveLp = new FrameLayout.LayoutParams(dp(88), dp(88), Gravity.END | Gravity.CENTER_VERTICAL);
+        saveLp.rightMargin = dp(42);
+        upperPanel.addView(save, saveLp);
 
         LinearLayout nozzleRow = new LinearLayout(this);
         nozzleRow.setOrientation(LinearLayout.HORIZONTAL);
         nozzleRow.setGravity(Gravity.CENTER);
-        nozzleRow.setPadding(0, dp(6), 0, dp(6));
+        nozzleRow.setPadding(dp(2), 0, dp(2), 0);
+        panel.addView(nozzleRow, new LinearLayout.LayoutParams(-1, dp(104)));
 
-        String[] labels = new String[] { "Soft", "Fat", "Needle", "Shadow", "3D", "Drip", "Tube", "Classic" };
-        int[] styles = new int[] { 7, 4, 0, 2, 3, 5, 6, 1 };
-        int[] colorIdx = new int[] { 2, 1, 0, 6, 3, 4, 5, 1 };
+        String[] labels = new String[] { "Classic", "Shadow", "Soft", "3D" };
+        int[] styles = new int[] { 1, 2, 7, 3 };
+        int[] colorIdx = new int[] { 1, 6, 2, 3 };
         int[] cardColors = new int[] {
-                Color.rgb(92,232,255), Color.rgb(255,136,178), Color.rgb(182,255,53), Color.rgb(245,238,224),
-                Color.rgb(255,228,94), Color.rgb(160,100,255), Color.rgb(245,238,224), Color.rgb(255,79,216)
+                Color.rgb(255,136,178),
+                Color.rgb(245,238,224),
+                Color.rgb(92,180,255),
+                Color.rgb(255,205,42)
         };
         for (int i = 0; i < labels.length; i++) {
             final int styleIndex = styles[i];
             final int colorIndex = colorIdx[i];
-            final TextView chip = nozzleChip(labels[i], cardColors[i]);
-            chip.setOnClickListener(v -> {
+            final NozzleCardView card = new NozzleCardView(this, labels[i], cardColors[i]);
+            card.setOnClickListener(v -> {
                 canvas.setSprayStyle(styleIndex);
                 canvas.setColorIndex(colorIndex);
-                markNozzleSelection(nozzleRow, chip);
-                activeCap.setText("BOQUILLA · " + canvas.sprayStyleName());
+                markNozzleSelection(nozzleRow, card);
                 colorButton.setText(canvas.sprayStyleName());
-                if (styleButton != null) styleButton.setText(canvas.sensitivityName());
-                aimBadge.setText("GIROSCOPIO · " + canvas.sensitivityName());
                 setStatus("Boquilla " + canvas.sprayStyleName() + " preparada.");
                 vibrate(18);
             });
-            LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(0, dp(92), 1);
-            chipLp.leftMargin = dp(3);
-            chipLp.rightMargin = dp(3);
-            nozzleRow.addView(chip, chipLp);
+            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(0, dp(96), 1);
+            cardLp.leftMargin = dp(6);
+            cardLp.rightMargin = dp(6);
+            nozzleRow.addView(card, cardLp);
         }
-        panel.addView(nozzleRow, new LinearLayout.LayoutParams(-1, -2));
         if (nozzleRow.getChildCount() > 0) markNozzleSelection(nozzleRow, nozzleRow.getChildAt(0));
 
-        LinearLayout bottomRow = new LinearLayout(this);
-        bottomRow.setOrientation(LinearLayout.HORIZONTAL);
-        bottomRow.setGravity(Gravity.CENTER);
-        Button spray = hudButton("SPRAY", Color.argb(235, 20,20,24), Color.rgb(255,136,178));
-        Button axes = darkToolButton("EJES");
-        Button obra = darkToolButton("OBRA");
-        Button exit = darkToolButton("AR");
-        bottomRow.addView(spray, new LinearLayout.LayoutParams(0, dp(64), 2));
-        bottomRow.addView(axes, new LinearLayout.LayoutParams(0, dp(64), 1));
-        bottomRow.addView(obra, new LinearLayout.LayoutParams(0, dp(64), 1));
-        bottomRow.addView(exit, new LinearLayout.LayoutParams(0, dp(64), 1));
-        panel.addView(bottomRow, new LinearLayout.LayoutParams(-1, -2));
-
-        FrameLayout.LayoutParams panelLp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        overlay.addView(panel, panelLp);
+        LinearLayout tabRow = new LinearLayout(this);
+        tabRow.setOrientation(LinearLayout.HORIZONTAL);
+        tabRow.setGravity(Gravity.CENTER);
+        tabRow.setPadding(0, dp(2), 0, 0);
+        tabRow.setBackground(pill(Color.argb(105, 0,0,0), Color.argb(30,255,255,255), dp(0)));
+        TextView sprayTab = bottomTab("SPRAY", true);
+        TextView photoTab = bottomTab("PHOTO", false);
+        sprayTab.setOnTouchListener((v, e) -> {
+            if (e.getAction() == MotionEvent.ACTION_DOWN) { startSpray(); return true; }
+            if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) { stopSpray(); return true; }
+            return true;
+        });
+        photoTab.setOnClickListener(v -> closePhotoMode());
+        tabRow.addView(sprayTab, new LinearLayout.LayoutParams(0, dp(78), 1));
+        tabRow.addView(photoTab, new LinearLayout.LayoutParams(0, dp(78), 1));
+        panel.addView(tabRow, new LinearLayout.LayoutParams(-1, dp(82)));
 
         clear.setOnClickListener(v -> {
             canvas.clearPaint();
             setStatus("Lienzo limpio.");
             vibrate(18);
-        });
-        center.setOnClickListener(v -> {
-            canvas.centerAim();
-            setStatus("Mira recentrada. Esta posición es tu centro.");
-            vibrate(30);
         });
         save.setOnClickListener(v -> {
             try {
@@ -453,45 +462,13 @@ public class MainActivity extends Activity implements SensorEventListener {
                 setStatus("Error guardando foto: " + e.getMessage());
             }
         });
-        sens.setOnClickListener(v -> {
-            canvas.nextSensitivity();
-            sens.setText("⚙\n" + canvas.sensitivityName());
-            if (styleButton != null) styleButton.setText(canvas.sensitivityName());
-            aimBadge.setText("GIROSCOPIO · " + canvas.sensitivityName());
-            setStatus("Sensibilidad: " + canvas.sensitivityName() + ".");
-            vibrate(18);
-        });
-        axes.setOnClickListener(v -> {
-            canvas.nextAxisMode();
-            axes.setText(canvas.axisModeName());
-            setStatus("Ejes: " + canvas.axisModeName() + ". Si va invertido, pulsa otra vez.");
-            vibrate(18);
-        });
-        spray.setOnTouchListener((v, e) -> {
-            if (e.getAction() == MotionEvent.ACTION_DOWN) { startSpray(); return true; }
-            if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) { stopSpray(); return true; }
-            return true;
-        });
-        final boolean[] obraMode = new boolean[]{ false };
-        obra.setOnClickListener(v -> {
-            obraMode[0] = !obraMode[0];
-            canvas.setStudioMode(obraMode[0]);
-            topBar.setVisibility(obraMode[0] ? View.GONE : View.VISIBLE);
-            aimBadge.setVisibility(obraMode[0] ? View.GONE : View.VISIBLE);
-            panel.setVisibility(obraMode[0] ? View.GONE : View.VISIBLE);
-            obra.setText(obraMode[0] ? "UI" : "OBRA");
-            modeBadge.setText(obraMode[0] ? "OBRA" : "FOTO");
-            setStatus(obraMode[0] ? "Modo obra limpio." : "Hub restaurado.");
-            vibrate(25);
-        });
-        exit.setOnClickListener(v -> closePhotoMode());
 
         photoOverlay = overlay;
         rootLayout.addView(photoOverlay, new FrameLayout.LayoutParams(-1, -1));
         colorButton.setText(canvas.sprayStyleName());
         if (styleButton != null) styleButton.setText(canvas.sensitivityName());
         updatePaint(canvas.paintPercent());
-        setStatus("Nuevo hub activo. Elige boquilla abajo, apunta con giroscopio y pinta con volumen o SPRAY.");
+        setStatus("Hub visual aplicado. Elige boquilla, apunta con el móvil y mantén SPRAY o volumen.");
     }
 
     private void closePhotoMode() {
@@ -609,6 +586,59 @@ public class MainActivity extends Activity implements SensorEventListener {
         }
     }
 
+    private TextView zoomText(String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(14);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setGravity(Gravity.CENTER);
+        return t;
+    }
+
+    private TextView bottomTab(String text, boolean active) {
+        TextView t = new TextView(this);
+        t.setText(active ? text + "\n━" : text);
+        t.setTextColor(active ? Color.rgb(255,136,178) : Color.argb(135,255,255,255));
+        t.setTextSize(active ? 17 : 16);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(0, dp(6), 0, dp(2));
+        return t;
+    }
+
+    private Button roundPanelButton(String text) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setTextSize(12);
+        b.setTextColor(Color.WHITE);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setAllCaps(false);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(dp(2), dp(2), dp(2), dp(2));
+        b.setBackground(radialButtonBg());
+        return b;
+    }
+
+    private GradientDrawable radialButtonBg() {
+        GradientDrawable g = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[] { Color.argb(215,42,42,48), Color.argb(236,5,5,8) }
+        );
+        g.setShape(GradientDrawable.OVAL);
+        g.setStroke(dp(1), Color.argb(95,255,255,255));
+        return g;
+    }
+
+    private GradientDrawable topGlassBar() {
+        GradientDrawable g = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[] { Color.argb(252, 0,0,0), Color.argb(224, 6,6,8), Color.argb(148, 0,0,0) }
+        );
+        g.setStroke(dp(1), Color.argb(16,255,255,255));
+        return g;
+    }
+
     private Button hudButton(String text, int color, int textColor) {
         Button b = new Button(this);
         b.setText(text);
@@ -661,9 +691,11 @@ public class MainActivity extends Activity implements SensorEventListener {
     private void markNozzleSelection(LinearLayout row, View selected) {
         for (int i = 0; i < row.getChildCount(); i++) {
             View child = row.getChildAt(i);
-            child.setAlpha(child == selected ? 1f : 0.62f);
-            child.setScaleX(child == selected ? 1.04f : 0.96f);
-            child.setScaleY(child == selected ? 1.04f : 0.96f);
+            boolean on = child == selected;
+            child.setAlpha(on ? 1f : 0.68f);
+            child.setScaleX(on ? 1.045f : 0.97f);
+            child.setScaleY(on ? 1.045f : 0.97f);
+            if (child instanceof NozzleCardView) ((NozzleCardView) child).setActive(on);
         }
     }
 
@@ -925,6 +957,111 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
     @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
 
+
+    private class SprayDialView extends View {
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF r = new RectF();
+        SprayDialView(Context c) { super(c); setLayerType(View.LAYER_TYPE_SOFTWARE, null); }
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float w = getWidth(), h = getHeight();
+            float cx = w * 0.5f;
+            float cy = h * 0.56f;
+            float rr = Math.min(w, h) * 0.42f;
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.argb(205, 0,0,0));
+            p.setShadowLayer(dp(14), 0, dp(5), Color.argb(190,0,0,0));
+            canvas.drawCircle(cx, cy, rr, p);
+            p.clearShadowLayer();
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(dp(4));
+            p.setColor(Color.argb(95,255,255,255));
+            canvas.drawCircle(cx, cy, rr * .88f, p);
+            p.setStrokeWidth(dp(6));
+            p.setStrokeCap(Paint.Cap.ROUND);
+            p.setColor(Color.rgb(255,136,178));
+            r.set(cx - rr*.92f, cy - rr*.92f, cx + rr*.92f, cy + rr*.92f);
+            canvas.drawArc(r, 142, 84, false, p);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.rgb(255,136,178));
+            canvas.drawCircle(cx - dp(17), cy - rr - dp(5), dp(4), p);
+            canvas.drawCircle(cx, cy - rr - dp(7), dp(4), p);
+            p.setColor(Color.argb(130,255,255,255));
+            canvas.drawCircle(cx + dp(17), cy - rr - dp(5), dp(4), p);
+
+            // Boquilla central estilo lata.
+            float capW = rr * .92f;
+            float capH = rr * .62f;
+            r.set(cx - capW/2, cy - capH*.35f, cx + capW/2, cy + capH*.65f);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.rgb(255,145,182));
+            p.setShadowLayer(dp(10), 0, dp(3), Color.argb(170,255,100,150));
+            canvas.drawRoundRect(r, dp(16), dp(16), p);
+            p.clearShadowLayer();
+            p.setColor(Color.rgb(255,188,210));
+            canvas.drawOval(cx - capW*.28f, cy - capH*.52f, cx + capW*.28f, cy - capH*.12f, p);
+            p.setColor(Color.argb(230,20,20,24));
+            canvas.drawCircle(cx + capW*.19f, cy + capH*.16f, dp(8), p);
+            p.setColor(Color.argb(180,255,255,255));
+            canvas.drawCircle(cx + capW*.17f, cy + capH*.12f, dp(2), p);
+        }
+    }
+
+    private class NozzleCardView extends View {
+        private final String label;
+        private final int accent;
+        private boolean active = false;
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF r = new RectF();
+        NozzleCardView(Context c, String label, int accent) {
+            super(c);
+            this.label = label;
+            this.accent = accent;
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        }
+        void setActive(boolean v) { active = v; invalidate(); }
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float w = getWidth(), h = getHeight();
+            r.set(dp(3), dp(3), w - dp(3), h - dp(3));
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.argb(active ? 230 : 184, 10,10,12));
+            p.setShadowLayer(dp(8), 0, dp(3), Color.argb(180,0,0,0));
+            canvas.drawRoundRect(r, dp(16), dp(16), p);
+            p.clearShadowLayer();
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(dp(active ? 2 : 1));
+            p.setColor(active ? Color.rgb(255,136,178) : Color.argb(46,255,255,255));
+            canvas.drawRoundRect(r, dp(16), dp(16), p);
+
+            float cx = w * .5f;
+            float top = h * .18f;
+            float capW = Math.min(w * .54f, dp(52));
+            float capH = h * .31f;
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.argb(140,0,0,0));
+            canvas.drawOval(cx - capW*.58f, top + capH*.62f, cx + capW*.58f, top + capH*.98f, p);
+            p.setColor(accent);
+            p.setShadowLayer(dp(8), 0, dp(2), Color.argb(150, Color.red(accent), Color.green(accent), Color.blue(accent)));
+            r.set(cx - capW*.45f, top + capH*.18f, cx + capW*.45f, top + capH*.88f);
+            canvas.drawRoundRect(r, dp(10), dp(10), p);
+            p.clearShadowLayer();
+            p.setColor(Color.argb(235,255,255,255));
+            canvas.drawOval(cx - capW*.28f, top, cx + capW*.28f, top + capH*.32f, p);
+            p.setColor(Color.argb(230,20,20,24));
+            canvas.drawCircle(cx + capW*.16f, top + capH*.54f, dp(6), p);
+            p.setColor(Color.argb(165,255,255,255));
+            canvas.drawCircle(cx + capW*.14f, top + capH*.50f, dp(1.5f), p);
+
+            p.setShadowLayer(dp(2), 0, dp(1), Color.BLACK);
+            p.setColor(active ? Color.WHITE : Color.argb(210,255,255,255));
+            p.setTextAlign(Paint.Align.CENTER);
+            p.setTypeface(Typeface.DEFAULT_BOLD);
+            p.setTextSize(dp(13));
+            canvas.drawText(label, cx, h - dp(18), p);
+            p.clearShadowLayer();
+        }
+    }
 
     private class PhotoSprayView extends View {
         private final Bitmap baseBitmap;
